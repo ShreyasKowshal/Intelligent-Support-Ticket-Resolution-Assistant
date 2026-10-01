@@ -7,6 +7,7 @@ EMBEDDING_MODEL_REVISION = "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
 EMBEDDING_TEXT_VERSION = "v1"
 DEFAULT_TICKET_TOP_K = 5
 DEFAULT_KB_TOP_K = 5
+DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
 
 
 def get_app_title() -> str:
@@ -24,3 +25,8 @@ def get_search_top_k() -> tuple[int, int]:
     if ticket_k < 1 or kb_k < 1:
         raise ValueError("Search Top-K environment values must be positive integers")
     return ticket_k, kb_k
+
+
+def get_gemini_model() -> str:
+    """Allow a model change without changing provider code."""
+    return os.getenv("GEMINI_MODEL") or DEFAULT_GEMINI_MODEL

@@ -59,7 +59,8 @@ have a resolution. The database file is local and ignored by Git.
 The schema has four tables: `tickets`, `kb_articles`, `taxonomy_values`, and
 `embeddings`. Only tickets that are both resolved and approved, and approved
 KB articles, are returned by the repository's evidence-only queries. The
-embedding table is empty for now. SQL is isolated in `backend/app/storage.py`.
+embedding table stores reusable, versioned vectors after index building. SQL is
+isolated in `backend/app/storage.py`.
 
 SQLite works without an external service. `DATABASE_URL` may override the
 default database URL for development; leave it unset for the simplest setup.
