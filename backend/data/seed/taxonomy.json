@@ -1,0 +1,6 @@
+{
+  "product": ["broadband", "mobile_prepaid", "mobile_postpaid", "account_services"],
+  "category": ["broadband_connectivity", "slow_internet", "router_issue", "billing_dispute", "payment_issue", "sim_activation", "mobile_network", "mobile_data", "roaming", "recharge_failure", "account_access", "service_outage"],
+  "severity": ["low", "medium", "high", "critical"],
+  "sentiment": ["positive", "neutral", "negative", "frustrated"]
+}

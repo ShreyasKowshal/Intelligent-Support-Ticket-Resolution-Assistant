@@ -224,3 +224,5 @@ __marimo__/
 model_cache/
 *.faiss
 *.pyc
+backend/data/*.db
+backend/data/*.db-*

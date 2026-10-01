@@ -1,0 +1,218 @@
+[
+  {
+    "product": "broadband",
+    "category": "broadband_connectivity",
+    "severity": "high",
+    "resolution": "Check the line-status light and service-area notices. Reseat the cable and restart the router once. If drops recur at the same time, collect timestamps and line diagnostics, then escalate for a line-quality investigation.",
+    "complaints": [
+      "My home internet cuts out each evening even after I restart the router.",
+      "The broadband keeps disconnecting at night and I am tired of resetting it.",
+      "Connection vanishes around 8 pm most days; I work from home and need this fixed.",
+      "Our fixed-line internet drops for a few minutes every evening.",
+      "I have rebooted twice but the line still dies when I start my evening shift.",
+      "The router shows a red line light whenever the connection disappears.",
+      "Service is usually good, but lately our broadband briefly loses sync after dinner.",
+      "Video calls fail every night because the home connection keeps dropping.",
+      "No internet right now and the same outage has happened several nights in a row.",
+      "The connection is back at present, but it repeatedly failed yesterday evening."
+    ]
+  },
+  {
+    "product": "broadband",
+    "category": "slow_internet",
+    "severity": "medium",
+    "resolution": "Check the subscribed speed and test through a wired connection near the router. Pause heavy downloads and compare several speed tests. If wired speed remains below the plan range, record the results and request line diagnostics.",
+    "complaints": [
+      "Pages take ages to load although my broadband stays connected.",
+      "I am paying for fast internet but downloads crawl every afternoon.",
+      "The Wi-Fi says connected, yet video meetings buffer constantly.",
+      "Our home connection feels much slower than the plan promises.",
+      "I cannot upload work files because the speed is so poor today.",
+      "A wired laptop is also slow, so I doubt this is just Wi-Fi range.",
+      "I like the service overall, but recent speed tests look unusually low.",
+      "Streaming quality drops while the connection indicator remains steady.",
+      "Can you check why my internet is sluggish during office hours?",
+      "The speed improved briefly after a restart and then became slow again."
+    ]
+  },
+  {
+    "product": "broadband",
+    "category": "router_issue",
+    "severity": "medium",
+    "resolution": "Confirm router power and cable connections. Check the status lights and try one restart. If the device fails to power on or repeatedly resets, arrange a hardware check or replacement under the applicable policy.",
+    "complaints": [
+      "My router will not turn on even though the socket has power.",
+      "The modem keeps rebooting itself and I am frustrated.",
+      "Only the power light is on; no other lights appear.",
+      "I changed the outlet but the Wi-Fi box still stays dark.",
+      "The router shuts down during my work calls despite a stable power supply.",
+      "The device gets unusually hot and restarts every few minutes.",
+      "The service has been good, but I think the supplied router is failing.",
+      "My broadband box flashes all lights then starts over again.",
+      "Please help me understand the blinking red indicator on the router.",
+      "An older router stopped working after I moved it to another room."
+    ]
+  },
+  {
+    "product": "mobile_postpaid",
+    "category": "billing_dispute",
+    "severity": "medium",
+    "resolution": "Review the current and prior invoice line items, plan dates, and any usage or add-on charges. Explain the charge with the relevant billing record. If a discrepancy remains, open a billing review and provide the reference number.",
+    "complaints": [
+      "This month's mobile bill is higher than usual and I do not recognize a charge.",
+      "Why did my postpaid invoice jump after I changed plans?",
+      "There is an extra fee on my statement that nobody explained.",
+      "My bill shows a service I never knowingly added.",
+      "I need the unexpected amount checked before the payment date.",
+      "The invoice lists an international charge even though I stayed home.",
+      "I normally like the plan, but this month's total looks wrong.",
+      "Please compare my old and new bills; the price increase makes no sense.",
+      "I am disputing a duplicate-looking line item on my account.",
+      "The charge may be valid, but I need a clear breakdown."
+    ]
+  },
+  {
+    "product": "mobile_postpaid",
+    "category": "payment_issue",
+    "severity": "medium",
+    "resolution": "Check the payment reference, date, amount, and account ledger without requesting full card details. If the payment is pending, explain the normal posting window. If it has settled but is absent from the ledger, raise a payment trace and avoid charging the customer again until reviewed.",
+    "complaints": [
+      "I paid my phone bill yesterday but the balance has not changed.",
+      "The app says payment failed while my bank shows the money left.",
+      "My card was charged twice for the same monthly invoice.",
+      "I have a receipt but the account still says overdue.",
+      "Please check the payment before my service is restricted.",
+      "The transaction is pending and I am unsure whether to pay again.",
+      "Payments usually work well, but this one is missing from my account.",
+      "My bill remains unpaid in the portal after a successful bank transfer.",
+      "I am angry that a paid invoice generated another reminder.",
+      "Can someone confirm whether my latest payment posted?"
+    ]
+  },
+  {
+    "product": "mobile_prepaid",
+    "category": "sim_activation",
+    "severity": "medium",
+    "resolution": "Confirm that identity checks and activation requests are complete. Ask the customer to restart the phone and verify that the SIM is seated correctly. If activation remains pending beyond the communicated window, escalate with the SIM and activation reference; never request a full identity document in chat.",
+    "complaints": [
+      "My new SIM still has no service after activation.",
+      "I completed the prepaid setup but the phone says SIM not provisioned.",
+      "The replacement SIM is inserted and I cannot make calls.",
+      "I was told activation was done, yet my number remains inactive.",
+      "I need the new SIM working before travel tomorrow.",
+      "The handset detects the card, but there is no network registration.",
+      "The purchase experience was good, but my SIM has not started working.",
+      "How long should it take for a transferred number to activate?",
+      "I am frustrated that the replacement card still shows emergency calls only.",
+      "The SIM worked briefly after setup and then lost service."
+    ]
+  },
+  {
+    "product": "mobile_postpaid",
+    "category": "mobile_network",
+    "severity": "high",
+    "resolution": "Check service-area notices and account status, then ask the customer to toggle airplane mode and restart once. Confirm whether calls fail in multiple locations. If several devices or locations are affected, collect location and time and escalate to network support.",
+    "complaints": [
+      "Calls keep dropping even when my phone shows signal bars.",
+      "I cannot place a call from home and I am losing patience.",
+      "The phone says emergency calls only in an area that normally works.",
+      "Incoming calls go straight to voicemail although I am available.",
+      "My work calls fail repeatedly while colleagues nearby have service.",
+      "Signal disappears whenever I enter my neighborhood.",
+      "Coverage is normally excellent, but voice calls have failed this week.",
+      "I tried another handset and the same number still cannot connect.",
+      "No one in our building can make calls at the moment.",
+      "The network comes and goes, so I am not sure whether it is my phone."
+    ]
+  },
+  {
+    "product": "mobile_prepaid",
+    "category": "mobile_data",
+    "severity": "medium",
+    "resolution": "Check that mobile data is enabled, the plan has remaining allowance, and any area notice is clear. Verify the device's network mode and APN settings against official instructions. If data still fails while calls work, escalate with device model and time of failure.",
+    "complaints": [
+      "I can call people but mobile internet does not load anything.",
+      "My data bundle is active and the browser still says offline.",
+      "The 5G icon is visible but apps cannot connect.",
+      "Mobile data stopped after I changed phones.",
+      "I need maps for work and cellular data is unusable today.",
+      "The handset connects on Wi-Fi but not on its data plan.",
+      "I like the prepaid plan, but data is not working this morning.",
+      "Could an incorrect APN be why websites will not open on my phone?",
+      "I am frustrated that I have signal and no mobile internet.",
+      "Data worked earlier; now only voice and text seem available."
+    ]
+  },
+  {
+    "product": "mobile_postpaid",
+    "category": "roaming",
+    "severity": "high",
+    "resolution": "Confirm the destination is covered by the customer's roaming plan and that roaming is enabled on the account and device. Check the partner-network selection and any spend controls. If service remains unavailable, escalate with country, network, and time; explain possible charges before suggesting paid changes.",
+    "complaints": [
+      "I landed abroad and my phone will not connect to a network.",
+      "Roaming was added to my plan but calls still fail overseas.",
+      "I cannot use data after crossing the border and need help urgently.",
+      "My handset shows a foreign carrier but nothing works.",
+      "I need service for a business trip and roaming is blocked.",
+      "I enabled roaming on the phone, yet it has no connection.",
+      "The plan has been fine at home, but it is not working abroad.",
+      "Please explain why my travel add-on has not started.",
+      "I am upset that I cannot contact anyone while traveling.",
+      "Roaming data sometimes works and then stops in this country."
+    ]
+  },
+  {
+    "product": "mobile_prepaid",
+    "category": "recharge_failure",
+    "severity": "medium",
+    "resolution": "Check the recharge reference, amount, destination number, and current balance without collecting card credentials. If payment settled but credit is missing, raise a recharge trace and tell the customer not to repeat the purchase until the status is confirmed.",
+    "complaints": [
+      "I topped up my phone but the balance did not increase.",
+      "The recharge page said successful and my credit is still zero.",
+      "Money left my account but no prepaid data pack appeared.",
+      "I bought a top-up for my number and it went somewhere else.",
+      "I need mobile service for work and the recharge has not arrived.",
+      "The app froze after payment; I cannot tell whether the top-up worked.",
+      "Top-ups normally post quickly, but this one has not shown up.",
+      "Could you trace a voucher code that was accepted without adding credit?",
+      "I am annoyed that a paid recharge left my balance unchanged.",
+      "The data pack showed briefly and then disappeared from the account."
+    ]
+  },
+  {
+    "product": "account_services",
+    "category": "account_access",
+    "severity": "medium",
+    "resolution": "Use the official password-reset or account-recovery flow and verify the customer through approved channels. Check whether the account is locked or the contact method is outdated. Escalate if recovery fails; never ask for passwords or one-time codes in the support conversation.",
+    "complaints": [
+      "I cannot sign in to my telecom account after resetting the password.",
+      "The portal says my account is locked and I need to view my bill.",
+      "I no longer receive the code needed to access the app.",
+      "My username works but every password attempt is rejected.",
+      "I need account access for work expenses and the login keeps failing.",
+      "The app logs me out immediately after I sign in.",
+      "The account site normally works, but it will not recognize me today.",
+      "How can I recover access when my old phone number is unavailable?",
+      "I am frustrated by repeated account lockouts.",
+      "I can access billing by email but cannot get into the mobile app."
+    ]
+  },
+  {
+    "product": "broadband",
+    "category": "service_outage",
+    "severity": "critical",
+    "resolution": "Check the official outage notice and affected area before device troubleshooting. Share the latest verified restoration update and log the impacted service. If no notice exists despite multiple affected customers, escalate to the network incident team; do not promise an unverified restoration time.",
+    "complaints": [
+      "The whole street has lost broadband at once.",
+      "Everyone in our building is offline and we need an update.",
+      "Several neighbors report no service since this morning.",
+      "Our office and nearby homes all lost internet together.",
+      "An area-wide outage has stopped our business operations.",
+      "The service-status page shows an incident but gives no details.",
+      "The network is usually reliable, but the neighborhood is offline now.",
+      "No broadband across multiple apartments; is there a known fault?",
+      "We are all disconnected and the outage is taking too long.",
+      "Service returned briefly for the block and then failed again."
+    ]
+  }
+]
