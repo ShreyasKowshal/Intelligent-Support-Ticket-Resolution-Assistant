@@ -85,8 +85,8 @@ class TaxonomyValue(Record):
 class EmbeddingMetadata(Record):
     source_id: str = Field(min_length=1)
     source_type: SourceType
-    model_name: str = Field(min_length=1)
-    model_version: str = Field(min_length=1)
+    model_name: str = Field(min_length=1, max_length=120)
+    model_version: str = Field(min_length=1, max_length=80)
     vector_bytes: bytes | None = None
     updated_at: datetime
 
@@ -95,6 +95,8 @@ class EmbeddingMetadata(Record):
         prefix = "T-" if self.source_type == "ticket" else "KB-"
         if not self.source_id.startswith(prefix):
             raise ValueError("source_id does not match source_type")
+        if self.updated_at.tzinfo is None:
+            raise ValueError("updated_at must include a timezone")
         return self
 
 

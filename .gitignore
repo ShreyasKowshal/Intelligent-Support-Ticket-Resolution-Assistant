@@ -226,3 +226,4 @@ model_cache/
 *.pyc
 backend/data/*.db
 backend/data/*.db-*
+backend/data/indexes/

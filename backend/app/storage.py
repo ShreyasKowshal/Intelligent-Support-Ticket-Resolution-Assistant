@@ -15,11 +15,12 @@ from sqlalchemy import (
     create_engine,
     insert,
     select,
+    update,
 )
 from sqlalchemy.engine import Connection, Engine, URL
 from sqlalchemy.exc import ArgumentError, IntegrityError, SQLAlchemyError
 
-from app.models import KnowledgeBaseArticle, SupportTicket, TaxonomyValue
+from app.models import EmbeddingMetadata, KnowledgeBaseArticle, SupportTicket, TaxonomyValue
 
 metadata = MetaData()
 
@@ -141,14 +142,20 @@ class Repository:
             except IntegrityError as exc:
                 raise DuplicateRecordError(f"KB article already exists: {article.kb_id}") from exc
 
-    def get_ticket(self, ticket_id: str) -> SupportTicket | None:
+    def get_ticket(self, ticket_id: str, evidence_only: bool = False) -> SupportTicket | None:
+        statement = select(tickets).where(tickets.c.ticket_id == ticket_id)
+        if evidence_only:
+            statement = statement.where(tickets.c.status == "resolved", tickets.c.approved.is_(True))
         with self.engine.connect() as connection:
-            row = connection.execute(select(tickets).where(tickets.c.ticket_id == ticket_id)).mappings().first()
+            row = connection.execute(statement).mappings().first()
             return SupportTicket.model_validate(row) if row else None
 
-    def get_kb_article(self, kb_id: str) -> KnowledgeBaseArticle | None:
+    def get_kb_article(self, kb_id: str, evidence_only: bool = False) -> KnowledgeBaseArticle | None:
+        statement = select(kb_articles).where(kb_articles.c.kb_id == kb_id)
+        if evidence_only:
+            statement = statement.where(kb_articles.c.approved.is_(True))
         with self.engine.connect() as connection:
-            row = connection.execute(select(kb_articles).where(kb_articles.c.kb_id == kb_id)).mappings().first()
+            row = connection.execute(statement).mappings().first()
             return KnowledgeBaseArticle.model_validate(row) if row else None
 
     def list_tickets(self, evidence_only: bool = False) -> list[SupportTicket]:
@@ -164,6 +171,38 @@ class Repository:
             statement = statement.where(kb_articles.c.approved.is_(True))
         with self.engine.connect() as connection:
             return [KnowledgeBaseArticle.model_validate(row) for row in connection.execute(statement).mappings()]
+
+    def get_embedding(
+        self, source_id: str, source_type: str, model_name: str, model_version: str
+    ) -> EmbeddingMetadata | None:
+        key = (
+            embeddings.c.source_id == source_id,
+            embeddings.c.source_type == source_type,
+            embeddings.c.model_name == model_name,
+            embeddings.c.model_version == model_version,
+        )
+        with self.engine.connect() as connection:
+            row = connection.execute(select(embeddings).where(*key)).mappings().first()
+            return EmbeddingMetadata.model_validate(row) if row else None
+
+    def save_embedding(self, item: EmbeddingMetadata) -> None:
+        """Store an encoded vector without exposing SQL to the search layer."""
+        if not item.vector_bytes:
+            raise ValueError("embedding vector_bytes cannot be empty")
+        key = (
+            embeddings.c.source_id == item.source_id,
+            embeddings.c.source_type == item.source_type,
+            embeddings.c.model_name == item.model_name,
+            embeddings.c.model_version == item.model_version,
+        )
+        values = item.model_dump()
+        values["updated_at"] = item.updated_at.isoformat()
+        with self.engine.begin() as connection:
+            exists = connection.execute(select(embeddings.c.source_id).where(*key)).first()
+            if exists:
+                connection.execute(update(embeddings).where(*key).values(**values))
+            else:
+                connection.execute(insert(embeddings).values(**values))
 
     def seed(
         self,
