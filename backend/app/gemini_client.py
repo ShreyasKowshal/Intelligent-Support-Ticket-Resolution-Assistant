@@ -40,6 +40,23 @@ class GeminiAnalysisShape(BaseModel):
     rationale: str
 
 
+class GeminiResolutionStepShape(BaseModel):
+    step_number: int
+    action: str
+    source_ids: list[str]
+
+
+class GeminiResolutionShape(BaseModel):
+    """Simple wire schema; rag.py applies stricter validation and citation checks."""
+
+    problem_summary: str
+    resolution_steps: list[GeminiResolutionStepShape]
+    escalation_recommendation: str
+    confidence_or_evidence_note: str
+    sources_used: list[str]
+    insufficient_evidence: bool
+
+
 class GeminiClient:
     """The only application component that imports the Gemini SDK."""
 
@@ -51,16 +68,24 @@ class GeminiClient:
         self._client = genai.Client(api_key=key.strip(), http_options=types.HttpOptions(timeout=30000))
 
     def generate_analysis(self, system_instruction: str, complaint: str) -> str:
+        return self._generate(system_instruction, complaint, GeminiAnalysisShape, 512)
+
+    def generate_resolution(self, system_instruction: str, evidence_context: str) -> str:
+        return self._generate(system_instruction, evidence_context, GeminiResolutionShape, 2048)
+
+    def _generate(
+        self, system_instruction: str, content: str, schema: type[BaseModel], max_tokens: int
+    ) -> str:
         try:
             response = self._client.models.generate_content(
                 model=self.model,
-                contents=complaint,
+                contents=content,
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
                     response_mime_type="application/json",
-                    response_schema=GeminiAnalysisShape,
+                    response_schema=schema,
                     temperature=0,
-                    max_output_tokens=512,
+                    max_output_tokens=max_tokens,
                 ),
             )
             if not response.text:
