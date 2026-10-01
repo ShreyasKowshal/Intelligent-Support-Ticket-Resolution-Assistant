@@ -216,3 +216,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local editor settings and generated model/search files
+.vscode/
+.idea/
+.cache/
+model_cache/
+*.faiss
+*.pyc
