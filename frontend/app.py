@@ -1,9 +1,11 @@
 """Support-agent page: one complaint goes through FastAPI's /resolve route."""
 
+from hashlib import sha256
 from time import monotonic
 
 import streamlit as st
 
+from frontend import live_complaint
 from frontend.api_client import (
     BackendConnectionError, FrontendError, MAX_COMPLAINT_LENGTH, ResolveResult,
     check_backend_readiness, resolve_complaint,
@@ -61,6 +63,11 @@ def clear_previous_result() -> None:
     """Keep a prior recommendation from appearing under a newly edited complaint."""
     st.session_state.result = None
     st.session_state.error_message = None
+    st.session_state.result_input_fingerprint = None
+
+
+def complaint_fingerprint(complaint: str) -> str:
+    return sha256(complaint.encode("utf-8")).hexdigest()
 
 
 def show_analysis(result: ResolveResult) -> None:
@@ -147,9 +154,9 @@ def main() -> None:
             line-height: 1.35; padding: .2rem 0; text-align: right; white-space: nowrap; }
         </style>
     """, unsafe_allow_html=True)
-    st.session_state.setdefault("complaint", "")
     st.session_state.setdefault("result", None)
     st.session_state.setdefault("error_message", None)
+    st.session_state.setdefault("result_input_fingerprint", None)
     if "backend_state" not in st.session_state:
         start_backend_check()
 
@@ -165,13 +172,10 @@ def main() -> None:
 
     with st.container(border=True):
         st.subheader("Customer complaint")
-        complaint = st.text_area(
-            "Customer complaint", key="complaint", height=170,
-            label_visibility="collapsed",
-            placeholder="Paste the customer's raw telecom complaint here...",
-            help=f"Up to {MAX_COMPLAINT_LENGTH} characters.",
-            on_change=clear_previous_result,
-        )
+        complaint = live_complaint.complaint_text_area(clear_previous_result)
+        if (st.session_state.result is not None
+                and st.session_state.result_input_fingerprint != complaint_fingerprint(complaint)):
+            clear_previous_result()
         st.caption(f"{len(complaint)} / {MAX_COMPLAINT_LENGTH} characters")
         if len(complaint) > MAX_COMPLAINT_LENGTH:
             st.error(f"Complaint must be {MAX_COMPLAINT_LENGTH} characters or fewer.")
@@ -185,7 +189,8 @@ def main() -> None:
             st.session_state.error_message = None
             try:
                 with st.spinner("Analyzing the complaint and checking approved evidence..."):
-                    st.session_state.result = resolve_complaint(st.session_state.complaint)
+                    st.session_state.result = resolve_complaint(complaint)
+                    st.session_state.result_input_fingerprint = complaint_fingerprint(complaint)
             except BackendConnectionError as exc:
                 st.session_state.error_message = str(exc)
                 start_backend_check()
