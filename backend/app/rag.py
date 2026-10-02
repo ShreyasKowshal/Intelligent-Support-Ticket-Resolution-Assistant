@@ -15,7 +15,12 @@ from .search import KBMatch, TicketMatch
 MAX_EVIDENCE_PER_TYPE = 5
 DEFAULT_MIN_SIMILARITY = 0.25  # A weak-match heuristic, never a probability.
 SOURCE_ID_PATTERN = re.compile(r"^(?:T-\d{3,}|KB-\d{3,})$")
-TEXT_SOURCE_REFERENCE = re.compile(r"(?<![A-Za-z0-9_])(?:T|KB)-[A-Za-z0-9_-]+")
+# Treat noncanonical case and common typographic dashes as references too, so
+# they cannot hide an invented source ID from the exact-ID validation below.
+TEXT_SOURCE_REFERENCE = re.compile(
+    r"(?<![A-Za-z0-9_])(?:T|KB)[-\u2010-\u2015\u2212\uFE58\uFE63\uFF0D][A-Za-z0-9_-]+",
+    re.IGNORECASE,
+)
 
 
 class ResolutionStep(BaseModel):

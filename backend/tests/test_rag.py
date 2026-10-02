@@ -92,6 +92,22 @@ def test_hallucinated_id_in_free_text_fails(field):
         )
 
 
+@pytest.mark.parametrize("reference", ["kb-999", "KB‑999", "kb-001"])
+def test_noncanonical_textual_citations_cannot_bypass_validation(reference):
+    for field in ("problem_summary", "resolution_steps"):
+        change = (
+            {"problem_summary": f"Follow {reference}."}
+            if field == "problem_summary" else
+            {"resolution_steps": [{
+                "step_number": 1, "action": f"Follow {reference}.", "source_ids": ["KB-001"]
+            }]}
+        )
+        with pytest.raises(GroundingError):
+            RAGGenerator(FakeLLMClient({}, response(**change))).generate(
+                "Broadband is down.", analysis(), [ticket()], [kb()]
+            )
+
+
 def test_action_text_id_must_appear_in_that_step_citations():
     bad = response(resolution_steps=[{
         "step_number": 1, "action": "Follow KB-002.", "source_ids": ["KB-001"]
