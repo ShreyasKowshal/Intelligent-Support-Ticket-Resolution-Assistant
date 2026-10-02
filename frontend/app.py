@@ -52,7 +52,7 @@ def show_backend_status() -> None:
         f'<div class="backend-status {style}">{label}</div>', unsafe_allow_html=True,
     )
     if st.session_state.backend_state == "unavailable":
-        if st.button("Retry backend connection", key="retry_backend_connection", use_container_width=True):
+        if st.button("Retry backend connection", key="retry_backend_connection"):
             start_backend_check()
             st.rerun()
 
@@ -143,12 +143,12 @@ def main() -> None:
     st.set_page_config(page_title="Intelligent Support Ticket Resolution Assistant", page_icon="🎧", layout="wide")
     st.markdown("""
         <style>
-        .block-container { max-width: 1200px; padding-top: 2rem; }
-        .backend-status { border-radius: 999px; padding: .55rem .85rem;
-            font-weight: 600; text-align: center; white-space: nowrap; }
-        .backend-status.starting { background: #fff4d6; color: #765000; }
-        .backend-status.ready { background: #e0f4e8; color: #135c36; }
-        .backend-status.unavailable { background: #fde8e8; color: #912323; }
+        .block-container { max-width: 1200px; padding-top: .9rem; }
+        .backend-status { font-size: .78rem; font-weight: 550; line-height: 1.2;
+            padding: .1rem 0; text-align: right; white-space: nowrap; }
+        .backend-status.starting { color: #765000; }
+        .backend-status.ready { color: #135c36; }
+        .backend-status.unavailable { color: #912323; }
         </style>
     """, unsafe_allow_html=True)
     st.session_state.setdefault("complaint", "")
@@ -161,12 +161,11 @@ def main() -> None:
     def backend_status_panel() -> None:
         show_backend_status()
 
-    title_column, status_column = st.columns([4, 1.5], vertical_alignment="center")
-    with title_column:
-        st.title("Intelligent Support Ticket Resolution Assistant")
-        st.caption("Analyze telecom complaints and review cited guidance from approved support evidence.")
+    _, status_column = st.columns([5, 1.5], vertical_alignment="top")
     with status_column:
         backend_status_panel()
+    st.title("Intelligent Support Ticket Resolution Assistant")
+    st.caption("Analyze telecom complaints and review cited guidance from approved support evidence.")
 
     with st.container(border=True):
         st.subheader("Customer complaint")
@@ -177,10 +176,6 @@ def main() -> None:
             help=f"Up to {MAX_COMPLAINT_LENGTH} characters.",
             on_change=clear_previous_result,
         )
-        if st.session_state.backend_state == "starting":
-            st.caption("Backend is starting. You can type while it wakes up; submission will enable when ready.")
-        elif st.session_state.backend_state == "unavailable":
-            st.caption("Backend is currently unavailable. Please retry the connection above.")
         if st.button(
             "Analyze & Resolve", key="submit_complaint", type="primary",
             disabled=st.session_state.backend_state != "ready", use_container_width=True,
