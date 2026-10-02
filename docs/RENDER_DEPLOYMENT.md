@@ -60,17 +60,17 @@ Gemini, so a hosted live request is still required.
 Postgres durably stores tickets, KB articles, taxonomy, and versioned embedding
 vectors. The backend's `backend/data/indexes/` FAISS files and
 `backend/data/model_cache/` are disposable. On the first `/ready` or search
-after a fresh deploy, the pinned sentence-transformer may download; missing or
+after a fresh deploy, the pinned ONNX MiniLM artifact may download; missing or
 stale indexes rebuild from approved Postgres records and reuse stored vectors.
 A persistent disk is not required for this small prototype. Model download,
 FAISS construction, and service memory use must be checked on the chosen
 Render instance. No paid compute plan is assumed by this runbook.
 
-On the local Windows machine with a previously downloaded model cache, a fresh
-Python process took 11.6 seconds to import the backend, 1.32 seconds for its
-first `/ready`-equivalent check and index build from a temporary seeded DB,
-and 0.004 seconds for a second check. That observation excludes model download
-and Render networking and does not establish hosted memory or cold-start time.
+The previous PyTorch runtime's local Windows cold-start measurement was 11.6
+seconds for API import. In the local ONNX prototype with a warm model cache,
+peak process memory was 282.2 MiB through `/ready`, index rebuild, `/search`,
+and a fake-provider `/resolve`. The hosted Linux memory peak and first model
+download remain unverified.
 
 Use one backend worker and one service instance for the prototype. The shared
 in-process lock protects search/index updates and taxonomy reloads, and also

@@ -1,13 +1,15 @@
-"""Fast search tests use a deterministic encoder; the CLI checks the real model."""
+"""Fast search tests use a deterministic encoder; evaluation checks the real model."""
 
 import hashlib
+import json
 
 import numpy as np
 import pytest
 from sqlalchemy import update
 from sqlalchemy.engine import URL
 
-from app.config import EMBEDDING_MODEL_NAME
+from app.config import EMBEDDING_MODEL_NAME, EMBEDDING_RUNTIME_VERSION
+from app.models import EmbeddingMetadata
 from app.search import SentenceEncoder, SemanticSearch, embedding_version, normalize_vectors, ticket_embedding_text
 from app.seed import seed_database
 from app.storage import Repository, kb_articles as kb_table, tickets as tickets_table
@@ -66,26 +68,64 @@ def test_normalization_rejects_bad_vectors():
         normalize_vectors(np.array([[0, 0]], dtype=np.float32))
 
 
-def test_sentence_model_is_loaded_once_per_encoder(monkeypatch, tmp_path):
+def test_onnx_model_is_loaded_once_per_encoder(monkeypatch, tmp_path):
     loaded = []
 
     class Model:
-        def get_embedding_dimension(self):
-            return 2
+        embedding_size = 384
 
-        def encode(self, texts, **kwargs):
-            return np.array([[3.0, 4.0] for _ in texts], dtype=np.float32)
+        def embed(self, texts, **kwargs):
+            for _ in texts:
+                yield np.array([3.0, 4.0] + [0.0] * 382, dtype=np.float32)
 
-    def make_model(*args, **kwargs):
-        loaded.append(True)
+    def make_model(*, model_name, specific_model_path, threads, cuda, **kwargs):
+        loaded.append((model_name, specific_model_path, threads, cuda))
         return Model()
 
-    monkeypatch.setattr("app.search.SentenceTransformer", make_model)
+    monkeypatch.setattr("app.search.snapshot_download", lambda **_kwargs: str(tmp_path / "pinned"))
+    monkeypatch.setattr("app.search.TextEmbedding", make_model)
     encoder = SentenceEncoder(cache_dir=tmp_path / "cache")
-    assert encoder.dimension == 2
-    assert np.allclose(encoder.encode(["one", "two"]), [[0.6, 0.8], [0.6, 0.8]])
-    assert encoder.dimension == 2
+    assert encoder.dimension == 384
+    vectors = encoder.encode(["one", "two"])
+    assert vectors.shape == (2, 384)
+    assert np.allclose(vectors[:, :2], [[0.6, 0.8], [0.6, 0.8]])
+    assert np.allclose(np.linalg.norm(vectors, axis=1), [1, 1])
+    assert encoder.dimension == 384
     assert len(loaded) == 1
+    assert loaded[0] == (EMBEDDING_MODEL_NAME, str(tmp_path / "pinned"), 1, False)
+
+
+def test_old_runtime_vectors_and_index_are_rebuilt(search_setup):
+    repository, encoder, search = search_setup
+    ticket = repository.get_ticket("T-001")
+    assert ticket is not None
+    text = ticket_embedding_text(ticket)
+    old_revision = "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
+    old_hash = hashlib.sha256(f"{old_revision}:v1:{text}".encode()).hexdigest()
+    old_version = f"{old_revision[:12]}-v1-{old_hash}"
+    repository.save_embedding(EmbeddingMetadata(
+        source_id=ticket.ticket_id, source_type="ticket", model_name=EMBEDDING_MODEL_NAME,
+        model_version=old_version, vector_bytes=np.ones(4, dtype="<f4").tobytes(),
+        updated_at=ticket.updated_at,
+    ))
+    search.build_indexes()
+    assert old_version != embedding_version(text)
+    assert any(text in batch for batch in encoder.calls)
+    assert repository.get_embedding(ticket.ticket_id, "ticket", EMBEDDING_MODEL_NAME, old_version) is None
+    assert repository.get_embedding(
+        ticket.ticket_id, "ticket", EMBEDDING_MODEL_NAME, embedding_version(text)
+    )
+
+    manifest_path = search.index_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["runtime_version"] == EMBEDDING_RUNTIME_VERSION
+    manifest["runtime_version"] = "sentence-transformers-pytorch"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    encoder.calls.clear()
+    restarted = SemanticSearch(repository, encoder=encoder, index_dir=search.index_dir)
+    assert restarted.load_or_build() == "rebuilt"
+    assert encoder.calls == []  # Current ONNX vectors are reused; the old FAISS file is not.
+    assert json.loads(manifest_path.read_text(encoding="utf-8"))["runtime_version"] == EMBEDDING_RUNTIME_VERSION
 
 
 def test_eligible_counts_and_durable_embedding_metadata(search_setup):

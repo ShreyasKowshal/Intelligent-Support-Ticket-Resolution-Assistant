@@ -9,11 +9,14 @@ from uuid import uuid4
 
 import faiss
 import numpy as np
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
+from huggingface_hub import snapshot_download
 
 from app.config import (
     EMBEDDING_MODEL_NAME,
+    EMBEDDING_MODEL_REPO,
     EMBEDDING_MODEL_REVISION,
+    EMBEDDING_RUNTIME_VERSION,
     EMBEDDING_TEXT_VERSION,
     get_search_top_k,
 )
@@ -44,29 +47,39 @@ def kb_embedding_text(article: KnowledgeBaseArticle) -> str:
 
 
 def embedding_version(text: str) -> str:
-    """Tie stored vectors to the pinned model and exact source text."""
+    """Tie stored vectors to the pinned ONNX runtime, model, and source text."""
     digest = hashlib.sha256(
-        f"{EMBEDDING_MODEL_REVISION}:{EMBEDDING_TEXT_VERSION}:{text}".encode("utf-8")
+        f"{EMBEDDING_MODEL_NAME}:{EMBEDDING_MODEL_REVISION}:"
+        f"{EMBEDDING_RUNTIME_VERSION}:{EMBEDDING_TEXT_VERSION}:{text}".encode("utf-8")
     ).hexdigest()
-    return f"{EMBEDDING_MODEL_REVISION[:12]}-{EMBEDDING_TEXT_VERSION}-{digest}"
+    return f"o1-{EMBEDDING_MODEL_REVISION[:8]}-{digest}"
 
 
 class SentenceEncoder:
-    """Load one pinned model lazily and reuse it for indexing and queries."""
+    """Load one pinned Torch-free ONNX model lazily for indexing and queries."""
 
     def __init__(self, cache_dir: Path | None = None) -> None:
         self.cache_dir = cache_dir or Path(__file__).resolve().parents[1] / "data" / "model_cache"
 
     @cached_property
-    def model(self) -> SentenceTransformer:
+    def model(self) -> TextEmbedding:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         try:
-            return SentenceTransformer(
-                EMBEDDING_MODEL_NAME,
+            model_dir = snapshot_download(
+                repo_id=EMBEDDING_MODEL_REPO,
                 revision=EMBEDDING_MODEL_REVISION,
-                cache_folder=str(self.cache_dir),
-                device="cpu",
-                trust_remote_code=False,
+                cache_dir=str(self.cache_dir),
+                allow_patterns=[
+                    "model.onnx", "tokenizer.json", "config.json",
+                    "tokenizer_config.json", "special_tokens_map.json",
+                ],
+            )
+            return TextEmbedding(
+                model_name=EMBEDDING_MODEL_NAME,
+                specific_model_path=model_dir,
+                cache_dir=str(self.cache_dir),
+                threads=1,
+                cuda=False,
             )
         except Exception as exc:
             raise RuntimeError(
@@ -76,21 +89,15 @@ class SentenceEncoder:
 
     @property
     def dimension(self) -> int:
-        dimension = self.model.get_embedding_dimension()
-        if dimension is None:
-            raise RuntimeError("embedding model did not report a vector dimension")
-        return int(dimension)
+        dimension = self.model.embedding_size
+        if dimension != 384:
+            raise RuntimeError("embedding model did not report 384 dimensions")
+        return dimension
 
     def encode(self, texts: list[str]) -> np.ndarray:
         if not texts:
             return np.empty((0, self.dimension), dtype=np.float32)
-        vectors = self.model.encode(
-            texts,
-            convert_to_numpy=True,
-            normalize_embeddings=True,
-            show_progress_bar=False,
-            batch_size=32,
-        )
+        vectors = np.asarray(list(self.model.embed(texts, batch_size=8)), dtype=np.float32)
         return normalize_vectors(vectors)
 
 
@@ -315,9 +322,10 @@ class SemanticSearch:
         ticket_temp.replace(ticket_path)
         kb_temp.replace(kb_path)
         manifest = {
-            "format": 1,
+            "format": 2,
             "model_name": EMBEDDING_MODEL_NAME,
             "model_revision": EMBEDDING_MODEL_REVISION,
+            "runtime_version": EMBEDDING_RUNTIME_VERSION,
             "text_version": EMBEDDING_TEXT_VERSION,
             "dimension": self.ticket_index.d,
             "source_signature": signature,
@@ -342,9 +350,10 @@ class SemanticSearch:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             dimension = self.encoder.dimension
             expected = {
-                "format": 1,
+                "format": 2,
                 "model_name": EMBEDDING_MODEL_NAME,
                 "model_revision": EMBEDDING_MODEL_REVISION,
+                "runtime_version": EMBEDDING_RUNTIME_VERSION,
                 "text_version": EMBEDDING_TEXT_VERSION,
                 "dimension": dimension,
                 "source_signature": self._source_signature(ticket_records, kb_records),

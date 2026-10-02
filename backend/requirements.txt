@@ -5,7 +5,7 @@ pytest>=8,<10
 SQLAlchemy>=2.0,<3
 psycopg[binary]>=3.2,<4
 pandas>=2.2,<4
-sentence-transformers>=5.7,<6
+fastembed==0.8.0
 faiss-cpu>=1.12,<2
 google-genai>=1.0,<2
 python-dotenv>=1.0,<2
