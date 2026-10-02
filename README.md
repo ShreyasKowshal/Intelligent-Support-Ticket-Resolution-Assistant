@@ -1,8 +1,8 @@
 # Intelligent Support Ticket Resolution Assistant
 
-This repository currently includes the FastAPI foundation, local data, and
-semantic search. Complaint analysis, RAG, and the frontend will be added in
-later phases.
+This repository includes a FastAPI service, local data and semantic search,
+Gemini complaint analysis, cited RAG resolution, and controlled ingestion.
+The Streamlit frontend and deployment are planned for later phases.
 
 ## Run locally
 
@@ -32,11 +32,36 @@ python -m uvicorn app.main:app --reload
 ```
 
 Open `http://127.0.0.1:8000/health` to see `{"status":"ok"}`.
-Run `python -m pytest` from `backend/` to execute the test.
+Run `python -m pytest` from `backend/` to execute the tests.
 
 `APP_TITLE` is optional and changes the API title. `.env.example` lists the
-available variables. The application uses environment variables directly and
-does not require a `.env` file.
+available variables. The API reads environment variables and the ignored
+repository-root `.env` file. Set `GEMINI_API_KEY` there for analysis and
+resolution; never commit the real file.
+
+## API routes
+
+Seed the local database with `python -m app.seed` from `backend/`, then start
+Uvicorn. `GET /health` checks the process; `GET /ready` checks the database,
+search indexes/model, and Gemini configuration. The first readiness or search
+request may load the embedding model and build indexes.
+
+`POST /analyze` accepts `{"complaint":"..."}` and returns structured analysis
+plus `latency_ms`. `POST /search` accepts the same complaint and optional
+`top_k_tickets` and `top_k_kb` (1–20), returning approved evidence and scores.
+`POST /resolve` runs analysis, retrieval, and cited RAG generation and returns
+analysis, matches, resolution, source IDs, insufficient-evidence status, and
+`latency_ms`. Similarity scores are ranking scores, not probabilities.
+
+Optional `POST /admin/tickets`, `POST /admin/kb`, and `POST /admin/taxonomy`
+reuse controlled ingestion. Set `ADMIN_API_KEY` in the environment and send it
+as `X-Admin-Key`; without a configured key, these routes return 503. The CLI
+remains available for local administration. `CORS_ORIGINS` accepts a
+comma-separated list of explicit frontend origins; the default only allows
+local Streamlit origins on port 8501.
+
+Run `python -m app.api_smoke` from `backend/` for an HTTP smoke test using a
+seeded temporary database and fake LLM, without consuming Gemini quota.
 
 ## Local data
 

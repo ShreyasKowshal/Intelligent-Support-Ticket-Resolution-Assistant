@@ -1,0 +1,255 @@
+"""HTTP contracts and orchestration use local fakes, never Gemini quota."""
+
+import hashlib
+from datetime import datetime, timezone
+
+import numpy as np
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy.engine import URL
+
+from app.api_service import ApiServices
+from app.gemini_client import GeminiProviderError
+from app.llm import FakeLLMClient
+from app.main import create_app
+from app.search import SearchResults, SemanticSearch
+from app.seed import seed_database
+from app.storage import Repository
+
+COMPLAINT = "My broadband drops every evening around 8 PM and I already restarted the router twice."
+ANALYSIS = {
+    "intent": "restore broadband", "category": "broadband_connectivity",
+    "product": "broadband", "severity": "HIGH", "sentiment": "FRUSTRATED",
+    "confidence": 0.83, "needs_review": False,
+    "rationale": "Recurring evening drops interrupt service.",
+}
+
+
+class FakeEncoder:
+    dimension = 4
+
+    def encode(self, texts):
+        vectors = []
+        for text in texts:
+            lower = text.lower()
+            if "phase7unique" in lower:
+                vectors.append([0.0, 0.0, 0.0, 1.0])
+            elif "broadband_connectivity" in lower or "drops" in lower:
+                vectors.append([1.0, 0.0, 0.0, 0.0])
+            else:
+                digest = hashlib.sha256(text.encode()).digest()
+                vectors.append([float(n + 1) for n in digest[:4]])
+        return np.asarray(vectors, dtype=np.float32)
+
+
+class EvidenceFake(FakeLLMClient):
+    def __init__(self):
+        super().__init__(ANALYSIS)
+
+    def generate_resolution(self, _instruction, context):
+        import json
+        evidence = json.loads(context)["retrieved_evidence"]
+        source_id = evidence[0]["source_id"]
+        return {
+            "problem_summary": "The broadband connection drops each evening.",
+            "resolution_steps": [{
+                "step_number": 1, "action": "Check the approved connection guidance.",
+                "source_ids": [source_id],
+            }],
+            "escalation_recommendation": "Escalate if the dropouts continue.",
+            "confidence_or_evidence_note": "Based on retrieved approved evidence.",
+            "sources_used": [source_id], "insufficient_evidence": False,
+        }
+
+
+@pytest.fixture
+def api(tmp_path):
+    repository = Repository(URL.create("sqlite", database=str(tmp_path / "api.db")))
+    seed_database(repository)
+    search = SemanticSearch(repository, encoder=FakeEncoder(), index_dir=tmp_path / "indexes")
+    provider = EvidenceFake()
+    service = ApiServices(repository, search, provider, admin_key="test-admin-key")
+    with TestClient(create_app(lambda: service)) as client:
+        yield client, service, provider
+
+
+def test_health_and_ready(api):
+    client, service, _ = api
+    assert client.get("/health").json() == {"status": "ok"}
+    ready = client.get("/ready")
+    assert ready.status_code == 200
+    assert all(ready.json()[key] for key in ("database", "search_index", "embedding_model", "gemini_configured"))
+    assert service.search.ticket_index is not None
+
+
+def test_ready_unavailable(tmp_path):
+    with TestClient(create_app(lambda: (_ for _ in ()).throw(RuntimeError("private database URL")))) as client:
+        assert client.get("/health").status_code == 200
+        response = client.get("/ready")
+        assert response.status_code == 503
+        assert response.json()["database"] is False
+        assert "private database URL" not in response.text
+
+
+def test_analyze_valid_unknown_and_validation(api):
+    client, _, provider = api
+    response = client.post("/analyze", json={"complaint": COMPLAINT})
+    assert response.status_code == 200
+    assert response.json()["analysis"]["severity"] == "HIGH"
+    assert response.json()["latency_ms"] >= 0
+    provider.result = {**ANALYSIS, "category": "optical_signal_fault"}
+    unknown = client.post("/analyze", json={"complaint": COMPLAINT}).json()["analysis"]
+    assert unknown["category"] == "other"
+    assert unknown["suggested_category"] == "optical_signal_fault"
+    assert unknown["needs_review"] is True
+    for complaint in ("", "   ", "x" * 4001):
+        bad = client.post("/analyze", json={"complaint": complaint})
+        assert bad.status_code == 422
+        assert complaint not in bad.text if complaint else True
+
+
+def test_provider_failure_and_missing_configuration(api):
+    client, service, provider = api
+    provider.result = GeminiProviderError("secret-provider-detail")
+    failed = client.post("/analyze", json={"complaint": COMPLAINT})
+    assert failed.status_code == 502
+    assert failed.json()["error"]["code"] == "provider_error"
+    assert "secret-provider-detail" not in failed.text
+    service.client = None
+    missing = client.post("/analyze", json={"complaint": COMPLAINT})
+    assert missing.status_code == 503
+    assert missing.json()["error"]["code"] == "missing_configuration"
+
+
+def test_search_validation_and_evidence_filter(api):
+    client, _, _ = api
+    response = client.post("/search", json={
+        "complaint": COMPLAINT, "top_k_tickets": 20, "top_k_kb": 20,
+    })
+    assert response.status_code == 200
+    body = response.json()
+    assert body["tickets"] and body["kb_articles"]
+    assert all("similarity_score" in match for match in body["tickets"] + body["kb_articles"])
+    assert not {"T-009", "T-010", "KB-020", "KB-024"} & {
+        match["source_id"] for match in body["tickets"] + body["kb_articles"]
+    }
+    assert body["latency_ms"] >= 0
+    for invalid in (0, -1, 21, True, "3"):
+        bad = client.post("/search", json={"complaint": COMPLAINT, "top_k_tickets": invalid})
+        assert bad.status_code == 422
+
+
+def test_search_failure_is_sanitized(api):
+    client, service, _ = api
+    service.search.search = lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("private model path"))
+    response = client.post("/search", json={"complaint": COMPLAINT})
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "search_unavailable"
+    assert "private model path" not in response.text
+
+
+def test_resolve_end_to_end_and_weak_evidence(api):
+    client, service, _ = api
+    response = client.post("/resolve", json={"complaint": COMPLAINT})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["analysis"]["product"] == "broadband"
+    assert body["tickets"] and body["kb_articles"]
+    assert body["resolution"]["resolution_steps"][0]["source_ids"] == body["source_ids"]
+    assert body["insufficient_evidence"] is False
+    assert body["latency_ms"] >= 0
+
+    service.search.search = lambda *_args, **_kwargs: SearchResults([], [])
+    weak = client.post("/resolve", json={"complaint": COMPLAINT})
+    assert weak.status_code == 200
+    assert weak.json()["insufficient_evidence"] is True
+    assert weak.json()["source_ids"] == []
+
+
+def test_resolve_rejects_hallucinated_citation_and_provider_failure(api):
+    client, _, provider = api
+    provider.generate_resolution = lambda *_args: {
+        "problem_summary": "Dropouts", "resolution_steps": [{
+            "step_number": 1, "action": "Follow an invented ticket.", "source_ids": ["T-999"],
+        }], "escalation_recommendation": "Escalate", "confidence_or_evidence_note": "Evidence",
+        "sources_used": ["T-999"], "insufficient_evidence": False,
+    }
+    rejected = client.post("/resolve", json={"complaint": COMPLAINT})
+    assert rejected.status_code == 502
+    assert rejected.json()["error"]["code"] == "grounding_error"
+    provider.generate_resolution = lambda *_args: (_ for _ in ()).throw(GeminiProviderError("secret"))
+    failed = client.post("/resolve", json={"complaint": COMPLAINT})
+    assert failed.status_code == 502
+    assert failed.json()["error"]["code"] == "provider_error"
+    assert "secret" not in failed.text
+
+
+def test_admin_authorization_validation_and_searchable_update(api):
+    client, service, _ = api
+    ticket = service.repository.get_ticket("T-001").model_dump(mode="json")
+    ticket.update(ticket_id="T-121", complaint="phase7unique optical service fault",
+                  created_at=datetime.now(timezone.utc).isoformat(),
+                  updated_at=datetime.now(timezone.utc).isoformat())
+    assert client.post("/admin/tickets", json=ticket).status_code == 401
+    assert client.post("/admin/tickets", json=ticket, headers={"X-Admin-Key": "wrong"}).status_code == 401
+    headers = {"X-Admin-Key": "test-admin-key"}
+    malformed = client.post("/admin/tickets", json={**ticket, "approved": "yes"}, headers=headers)
+    assert malformed.status_code == 422
+    assert client.post("/admin/taxonomy", json={"kind": "category", "value": "Bad Value", "reviewed_by": "x"}, headers=headers).status_code == 422
+    added = client.post("/admin/tickets", json=ticket, headers=headers)
+    assert added.status_code == 200
+    assert added.json() == {"change": "inserted", "index_refreshed": True}
+    found = client.post("/search", json={"complaint": "phase7unique"}).json()
+    assert found["tickets"][0]["source_id"] == "T-121"
+    article = service.repository.get_kb_article("KB-001").model_dump(mode="json")
+    article.update(kb_id="KB-025", title="phase7unique guidance",
+                   created_at=datetime.now(timezone.utc).isoformat(),
+                   updated_at=datetime.now(timezone.utc).isoformat())
+    assert client.post("/admin/kb", json=article, headers=headers).status_code == 200
+    taxonomy = client.post("/admin/taxonomy", json={
+        "kind": "category", "value": "optical_signal_fault", "reviewed_by": "test-reviewer",
+    }, headers=headers)
+    assert taxonomy.status_code == 200
+    assert "optical_signal_fault" in service.repository.list_taxonomy("category")
+    duplicate = client.post("/admin/taxonomy", json={
+        "kind": "category", "value": "optical_signal_fault", "reviewed_by": "test-reviewer",
+    }, headers=headers)
+    assert duplicate.status_code == 409
+
+
+def test_admin_revocation_disappears_from_api_evidence(api):
+    client, service, _ = api
+    before = client.post("/search", json={"complaint": COMPLAINT, "top_k_tickets": 20}).json()
+    assert "T-001" in {item["source_id"] for item in before["tickets"]}
+    ticket = service.repository.get_ticket("T-001").model_dump(mode="json")
+    ticket["approved"] = False
+    ticket["updated_at"] = datetime.now(timezone.utc).isoformat()
+    changed = client.post("/admin/tickets", json=ticket, headers={"X-Admin-Key": "test-admin-key"})
+    assert changed.status_code == 200
+    after = client.post("/search", json={"complaint": COMPLAINT, "top_k_tickets": 20}).json()
+    assert "T-001" not in {item["source_id"] for item in after["tickets"]}
+
+
+def test_admin_disabled_and_private_logging(api, caplog):
+    client, service, _ = api
+    service.admin_key = None
+    response = client.post("/admin/taxonomy", json={
+        "kind": "category", "value": "another_class", "reviewed_by": "reviewer",
+    }, headers={"X-Admin-Key": "private-admin-secret"})
+    assert response.status_code == 503
+    with caplog.at_level("INFO", logger="app.api"):
+        client.post("/analyze", json={"complaint": "private-customer-complaint"})
+    assert "private-customer-complaint" not in caplog.text
+    assert "private-admin-secret" not in caplog.text
+
+
+def test_cors_is_restrictive(api):
+    client, _, _ = api
+    allowed = client.options("/analyze", headers={
+        "Origin": "http://localhost:8501", "Access-Control-Request-Method": "POST",
+    })
+    assert allowed.headers["access-control-allow-origin"] == "http://localhost:8501"
+    blocked = client.options("/analyze", headers={
+        "Origin": "https://untrusted.example", "Access-Control-Request-Method": "POST",
+    })
+    assert blocked.status_code == 400
