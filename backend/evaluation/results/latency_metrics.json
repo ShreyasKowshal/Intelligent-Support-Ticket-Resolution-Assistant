@@ -1,0 +1,41 @@
+{
+  "health": {
+    "status": "ok",
+    "status_code": 200
+  },
+  "latency_source": "API response latency_ms; excludes test-client transport and cold model/index load",
+  "mode": "in_process_fastapi_fake_provider_warm",
+  "readiness_limitation": "Configured fake provider and local dependencies; no Gemini network probe.",
+  "ready": {
+    "database": true,
+    "embedding_model": true,
+    "gemini_configured": true,
+    "search_index": true,
+    "status": "ready",
+    "status_code": 200
+  },
+  "routes": {
+    "/analyze": {
+      "max_ms": 1.166,
+      "mean_ms": 1.015,
+      "median_ms": 1.052,
+      "min_ms": 0.817,
+      "runs": 7
+    },
+    "/resolve": {
+      "max_ms": 22.615,
+      "mean_ms": 21.572,
+      "median_ms": 21.969,
+      "min_ms": 20.466,
+      "runs": 7
+    },
+    "/search": {
+      "max_ms": 21.812,
+      "mean_ms": 20.001,
+      "median_ms": 19.742,
+      "min_ms": 18.369,
+      "runs": 7
+    }
+  },
+  "runs_per_route": 7
+}

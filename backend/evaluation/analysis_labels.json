@@ -1,0 +1,18 @@
+[
+  {"query_id":"Q-001","expected_intent":"restore_service","expected_severity":"HIGH","expected_sentiment":"NEUTRAL","expected_needs_review":false},
+  {"query_id":"Q-002","expected_intent":"restore_speed","expected_severity":"MEDIUM","expected_sentiment":"NEUTRAL","expected_needs_review":false},
+  {"query_id":"Q-003","expected_intent":"repair_equipment","expected_severity":"HIGH","expected_sentiment":"NEUTRAL","expected_needs_review":false},
+  {"query_id":"Q-004","expected_intent":"explain_charge","expected_severity":"MEDIUM","expected_sentiment":"NEUTRAL","expected_needs_review":false},
+  {"query_id":"Q-005","expected_intent":"trace_payment","expected_severity":"MEDIUM","expected_sentiment":"NEUTRAL","expected_needs_review":false},
+  {"query_id":"Q-006","expected_intent":"activate_sim","expected_severity":"HIGH","expected_sentiment":"NEUTRAL","expected_needs_review":false},
+  {"query_id":"Q-007","expected_intent":"restore_calls","expected_severity":"MEDIUM","expected_sentiment":"NEUTRAL","expected_needs_review":false},
+  {"query_id":"Q-008","expected_intent":"restore_mobile_data","expected_severity":"MEDIUM","expected_sentiment":"NEUTRAL","expected_needs_review":false},
+  {"query_id":"Q-009","expected_intent":"restore_roaming","expected_severity":"HIGH","expected_sentiment":"NEUTRAL","expected_needs_review":false},
+  {"query_id":"Q-010","expected_intent":"trace_recharge","expected_severity":"MEDIUM","expected_sentiment":"NEUTRAL","expected_needs_review":false},
+  {"query_id":"Q-011","expected_intent":"recover_account","expected_severity":"MEDIUM","expected_sentiment":"NEUTRAL","expected_needs_review":false},
+  {"query_id":"Q-012","expected_intent":"check_outage","expected_severity":"CRITICAL","expected_sentiment":"NEUTRAL","expected_needs_review":false},
+  {"query_id":"Q-016","expected_intent":"restore_roaming","expected_severity":"MEDIUM","expected_sentiment":"NEUTRAL","expected_needs_review":false},
+  {"query_id":"A-001","complaint":"I am furious: the prepaid mobile data service has failed for three days and I need it for work.","expected_category":"mobile_data","expected_product":"mobile_prepaid","expected_intent":"restore_mobile_data","expected_severity":"HIGH","expected_sentiment":"ANGRY","expected_needs_review":false},
+  {"query_id":"A-002","complaint":"I like my postpaid plan overall, but could you explain a small extra item on my bill?","expected_category":"billing_dispute","expected_product":"mobile_postpaid","expected_intent":"explain_charge","expected_severity":"LOW","expected_sentiment":"POSITIVE","expected_needs_review":false},
+  {"query_id":"A-003","complaint":"My fiber ONT has a red optical alarm after a storm. I am frustrated and have no connection.","expected_category":"other","raw_category":"optical_signal_fault","expected_product":"broadband","expected_intent":"investigate_new_fault","expected_severity":"HIGH","expected_sentiment":"FRUSTRATED","expected_needs_review":true}
+]

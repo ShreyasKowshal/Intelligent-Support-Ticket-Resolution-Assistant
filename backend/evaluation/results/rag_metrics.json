@@ -1,0 +1,325 @@
+{
+  "citation_coverage": 1.0,
+  "citation_validity_rate": 1.0,
+  "cited_ids": 16,
+  "conflicting_ticket_advice_rejected_by_validator": false,
+  "empty_evidence_abstains": true,
+  "injected_hallucinated_id_rejected": true,
+  "injected_instruction_with_valid_id_rejected_by_validator": false,
+  "invalid_id_rejected": true,
+  "kb_preference_observed_with_compliant_fake": true,
+  "limitation": "Citation IDs are checked; the validator cannot prove step meaning or KB precedence.",
+  "mode": "scripted_provider_structural_checks",
+  "per_query": [
+    {
+      "cited_source_ids": [
+        "KB-002"
+      ],
+      "insufficient_evidence": false,
+      "query_id": "Q-001",
+      "retrieved_source_ids": [
+        "KB-001",
+        "KB-002",
+        "KB-003",
+        "KB-005",
+        "KB-016",
+        "T-002",
+        "T-003",
+        "T-005",
+        "T-006",
+        "T-007"
+      ]
+    },
+    {
+      "cited_source_ids": [
+        "KB-003"
+      ],
+      "insufficient_evidence": false,
+      "query_id": "Q-002",
+      "retrieved_source_ids": [
+        "KB-001",
+        "KB-002",
+        "KB-003",
+        "KB-004",
+        "KB-016",
+        "T-007",
+        "T-014",
+        "T-015",
+        "T-017",
+        "T-018"
+      ]
+    },
+    {
+      "cited_source_ids": [
+        "KB-005"
+      ],
+      "insufficient_evidence": false,
+      "query_id": "Q-003",
+      "retrieved_source_ids": [
+        "KB-001",
+        "KB-002",
+        "KB-005",
+        "KB-006",
+        "KB-023",
+        "T-006",
+        "T-021",
+        "T-023",
+        "T-025",
+        "T-026"
+      ]
+    },
+    {
+      "cited_source_ids": [
+        "KB-017"
+      ],
+      "insufficient_evidence": false,
+      "query_id": "Q-004",
+      "retrieved_source_ids": [
+        "KB-007",
+        "KB-011",
+        "KB-015",
+        "KB-017",
+        "KB-019",
+        "T-031",
+        "T-033",
+        "T-035",
+        "T-037",
+        "T-098"
+      ]
+    },
+    {
+      "cited_source_ids": [
+        "KB-007"
+      ],
+      "insufficient_evidence": false,
+      "query_id": "Q-005",
+      "retrieved_source_ids": [
+        "KB-007",
+        "KB-008",
+        "KB-009",
+        "KB-010",
+        "KB-019",
+        "T-035",
+        "T-036",
+        "T-041",
+        "T-044",
+        "T-048"
+      ]
+    },
+    {
+      "cited_source_ids": [
+        "KB-019"
+      ],
+      "insufficient_evidence": false,
+      "query_id": "Q-006",
+      "retrieved_source_ids": [
+        "KB-009",
+        "KB-011",
+        "KB-012",
+        "KB-013",
+        "KB-019",
+        "T-052",
+        "T-056",
+        "T-068",
+        "T-076",
+        "T-084"
+      ]
+    },
+    {
+      "cited_source_ids": [
+        "KB-014"
+      ],
+      "insufficient_evidence": false,
+      "query_id": "Q-007",
+      "retrieved_source_ids": [
+        "KB-001",
+        "KB-002",
+        "KB-013",
+        "KB-014",
+        "KB-018",
+        "T-008",
+        "T-013",
+        "T-064",
+        "T-065",
+        "T-067"
+      ]
+    },
+    {
+      "cited_source_ids": [
+        "KB-015"
+      ],
+      "insufficient_evidence": false,
+      "query_id": "Q-008",
+      "retrieved_source_ids": [
+        "KB-013",
+        "KB-014",
+        "KB-015",
+        "KB-016",
+        "KB-018",
+        "T-062",
+        "T-063",
+        "T-071",
+        "T-076",
+        "T-082"
+      ]
+    },
+    {
+      "cited_source_ids": [
+        "KB-013"
+      ],
+      "insufficient_evidence": false,
+      "query_id": "Q-009",
+      "retrieved_source_ids": [
+        "KB-013",
+        "KB-014",
+        "KB-015",
+        "KB-017",
+        "KB-018",
+        "T-063",
+        "T-081",
+        "T-082",
+        "T-084",
+        "T-087"
+      ]
+    },
+    {
+      "cited_source_ids": [
+        "KB-019"
+      ],
+      "insufficient_evidence": false,
+      "query_id": "Q-010",
+      "retrieved_source_ids": [
+        "KB-007",
+        "KB-008",
+        "KB-009",
+        "KB-010",
+        "KB-019",
+        "T-041",
+        "T-044",
+        "T-091",
+        "T-092",
+        "T-098"
+      ]
+    },
+    {
+      "cited_source_ids": [
+        "KB-022"
+      ],
+      "insufficient_evidence": false,
+      "query_id": "Q-011",
+      "retrieved_source_ids": [
+        "KB-009",
+        "KB-012",
+        "KB-021",
+        "KB-022",
+        "KB-023",
+        "T-048",
+        "T-101",
+        "T-102",
+        "T-103",
+        "T-108"
+      ]
+    },
+    {
+      "cited_source_ids": [
+        "KB-003"
+      ],
+      "insufficient_evidence": false,
+      "query_id": "Q-012",
+      "retrieved_source_ids": [
+        "KB-001",
+        "KB-002",
+        "KB-003",
+        "KB-004",
+        "KB-023",
+        "T-001",
+        "T-016",
+        "T-112",
+        "T-114",
+        "T-117"
+      ]
+    },
+    {
+      "cited_source_ids": [
+        "KB-001"
+      ],
+      "insufficient_evidence": false,
+      "query_id": "Q-013",
+      "retrieved_source_ids": [
+        "KB-001",
+        "KB-002",
+        "KB-003",
+        "KB-004",
+        "KB-005",
+        "T-003",
+        "T-004",
+        "T-006",
+        "T-007",
+        "T-117"
+      ]
+    },
+    {
+      "cited_source_ids": [
+        "KB-015"
+      ],
+      "insufficient_evidence": false,
+      "query_id": "Q-014",
+      "retrieved_source_ids": [
+        "KB-011",
+        "KB-013",
+        "KB-014",
+        "KB-015",
+        "KB-016",
+        "T-061",
+        "T-071",
+        "T-072",
+        "T-073",
+        "T-084"
+      ]
+    },
+    {
+      "cited_source_ids": [
+        "KB-010"
+      ],
+      "insufficient_evidence": false,
+      "query_id": "Q-015",
+      "retrieved_source_ids": [
+        "KB-007",
+        "KB-008",
+        "KB-009",
+        "KB-010",
+        "KB-019",
+        "T-031",
+        "T-033",
+        "T-035",
+        "T-036",
+        "T-048"
+      ]
+    },
+    {
+      "cited_source_ids": [
+        "KB-015"
+      ],
+      "insufficient_evidence": false,
+      "query_id": "Q-016",
+      "retrieved_source_ids": [
+        "KB-012",
+        "KB-013",
+        "KB-015",
+        "KB-016",
+        "KB-018",
+        "T-072",
+        "T-082",
+        "T-083",
+        "T-087",
+        "T-088"
+      ]
+    }
+  ],
+  "queries": 16,
+  "semantic_entailment_automated": false,
+  "textual_invalid_reference_rejected": true,
+  "untrusted_text_instruction_present": true,
+  "valid_cited_ids": 16,
+  "weak_evidence_abstains": true
+}

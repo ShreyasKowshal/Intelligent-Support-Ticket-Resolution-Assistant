@@ -51,6 +51,23 @@ Run `python -m pytest -q` from `backend/` for backend tests, and
 `python -m pytest -q frontend/tests` from the repository root for frontend
 tests.
 
+## Evaluation
+
+From `backend/`, run the full deterministic evaluation with:
+
+```text
+python -m evaluation.run_evaluation
+```
+
+It seeds an isolated temporary database, compares FAISS retrieval with TF-IDF,
+checks label-blind fake analysis and scripted RAG contracts, and measures warm FastAPI route
+latency. Results are saved under `backend/evaluation/results/` as JSON plus
+`evaluation_summary.md`. No Gemini key is needed for this command. The current
+metrics rely mainly on small synthetic data and held-out paraphrases; fake-provider
+analysis scores are diagnostics, not live Gemini accuracy. An optional small
+provider sample can be run separately with `python -m evaluation.run_evaluation
+--live`; its environment-specific `live_sample.json` is ignored by Git.
+
 `APP_TITLE` is optional and changes the API title. `.env.example` lists the
 available variables. The API reads environment variables and the ignored
 repository-root `.env` file. Set `GEMINI_API_KEY` there for analysis and

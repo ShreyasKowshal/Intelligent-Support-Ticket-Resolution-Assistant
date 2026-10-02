@@ -1,0 +1,57 @@
+{
+  "fields": {
+    "category": {
+      "accuracy": 0.5,
+      "macro_f1": 0.5179,
+      "macro_precision": 0.5192,
+      "macro_recall": 0.5769,
+      "samples": 16
+    },
+    "intent": {
+      "accuracy": 0.5,
+      "macro_f1": 0.5179,
+      "macro_precision": 0.5192,
+      "macro_recall": 0.5769,
+      "samples": 16
+    },
+    "product": {
+      "accuracy": 0.6875,
+      "macro_f1": 0.7352,
+      "macro_precision": 0.7604,
+      "macro_recall": 0.75,
+      "samples": 16
+    },
+    "sentiment": {
+      "accuracy": 0.25,
+      "macro_f1": 0.3167,
+      "macro_precision": 0.4167,
+      "macro_recall": 0.5385,
+      "samples": 16
+    },
+    "severity": {
+      "accuracy": 0.5625,
+      "macro_f1": 0.4792,
+      "macro_precision": 0.5096,
+      "macro_recall": 0.5104,
+      "samples": 16
+    }
+  },
+  "limitation": "A lexical fake provider measures the analysis path, not Gemini model quality.",
+  "mode": "label_blind_nearest_ticket_fake_provider",
+  "needs_review": {
+    "accuracy": 0.9375,
+    "macro_f1": 0.4839,
+    "macro_precision": 0.4688,
+    "macro_recall": 0.5,
+    "samples": 16
+  },
+  "needs_review_positive": {
+    "f1": 0.0,
+    "precision": 0.0,
+    "recall": 0.0
+  },
+  "provider_receives_reference_labels": false,
+  "samples": 16,
+  "unknown_category_checks": 1,
+  "unknown_category_passed": true
+}

@@ -1,0 +1,647 @@
+{
+  "faiss": {
+    "kb_articles": {
+      "mrr": 0.7052,
+      "queries": 16,
+      "recall_at_1": 0.3125,
+      "recall_at_3": 0.6562,
+      "recall_at_5": 0.9375
+    },
+    "tickets": {
+      "mrr": 0.3668,
+      "queries": 12,
+      "recall_at_1": 0.1667,
+      "recall_at_3": 0.4167,
+      "recall_at_5": 0.5833
+    }
+  },
+  "leakage_audit": {
+    "exact_ticket_complaint_duplicates": [],
+    "near_ticket_complaint_matches_ratio_ge_0_9": [],
+    "query_uses_only_complaint": true,
+    "ticket_text_excludes_resolution": true
+  },
+  "mrr_policy": "Full-ranking reciprocal rank, not truncated at five.",
+  "per_query": [
+    {
+      "faiss_kb_top_5": [
+        "KB-002",
+        "KB-001",
+        "KB-005",
+        "KB-016",
+        "KB-003"
+      ],
+      "faiss_ticket_top_5": [
+        "T-003",
+        "T-006",
+        "T-007",
+        "T-005",
+        "T-002"
+      ],
+      "query_id": "Q-001",
+      "relevant_kb_ids": [
+        "KB-001",
+        "KB-002"
+      ],
+      "relevant_ticket_ids": [
+        "T-001"
+      ],
+      "tfidf_kb_top_5": [
+        "KB-014",
+        "KB-008",
+        "KB-005",
+        "KB-002",
+        "KB-001"
+      ],
+      "tfidf_ticket_top_5": [
+        "T-006",
+        "T-001",
+        "T-068",
+        "T-043",
+        "T-021"
+      ]
+    },
+    {
+      "faiss_kb_top_5": [
+        "KB-003",
+        "KB-001",
+        "KB-004",
+        "KB-002",
+        "KB-016"
+      ],
+      "faiss_ticket_top_5": [
+        "T-007",
+        "T-018",
+        "T-017",
+        "T-014",
+        "T-015"
+      ],
+      "query_id": "Q-002",
+      "relevant_kb_ids": [
+        "KB-003",
+        "KB-004"
+      ],
+      "relevant_ticket_ids": [
+        "T-011"
+      ],
+      "tfidf_kb_top_5": [
+        "KB-003",
+        "KB-002",
+        "KB-001",
+        "KB-015",
+        "KB-019"
+      ],
+      "tfidf_ticket_top_5": [
+        "T-014",
+        "T-024",
+        "T-011",
+        "T-006",
+        "T-031"
+      ]
+    },
+    {
+      "faiss_kb_top_5": [
+        "KB-005",
+        "KB-002",
+        "KB-023",
+        "KB-001",
+        "KB-006"
+      ],
+      "faiss_ticket_top_5": [
+        "T-021",
+        "T-025",
+        "T-006",
+        "T-023",
+        "T-026"
+      ],
+      "query_id": "Q-003",
+      "relevant_kb_ids": [
+        "KB-005",
+        "KB-006"
+      ],
+      "relevant_ticket_ids": [
+        "T-021"
+      ],
+      "tfidf_kb_top_5": [
+        "KB-008",
+        "KB-018",
+        "KB-002",
+        "KB-009",
+        "KB-005"
+      ],
+      "tfidf_ticket_top_5": [
+        "T-027",
+        "T-025",
+        "T-065",
+        "T-098",
+        "T-086"
+      ]
+    },
+    {
+      "faiss_kb_top_5": [
+        "KB-017",
+        "KB-015",
+        "KB-019",
+        "KB-007",
+        "KB-011"
+      ],
+      "faiss_ticket_top_5": [
+        "T-033",
+        "T-031",
+        "T-035",
+        "T-037",
+        "T-098"
+      ],
+      "query_id": "Q-004",
+      "relevant_kb_ids": [
+        "KB-007",
+        "KB-008"
+      ],
+      "relevant_ticket_ids": [
+        "T-031"
+      ],
+      "tfidf_kb_top_5": [
+        "KB-015",
+        "KB-009",
+        "KB-008",
+        "KB-005",
+        "KB-012"
+      ],
+      "tfidf_ticket_top_5": [
+        "T-033",
+        "T-086",
+        "T-043",
+        "T-075",
+        "T-093"
+      ]
+    },
+    {
+      "faiss_kb_top_5": [
+        "KB-007",
+        "KB-009",
+        "KB-008",
+        "KB-019",
+        "KB-010"
+      ],
+      "faiss_ticket_top_5": [
+        "T-044",
+        "T-048",
+        "T-035",
+        "T-041",
+        "T-036"
+      ],
+      "query_id": "Q-005",
+      "relevant_kb_ids": [
+        "KB-009",
+        "KB-010"
+      ],
+      "relevant_ticket_ids": [
+        "T-041"
+      ],
+      "tfidf_kb_top_5": [
+        "KB-009",
+        "KB-019",
+        "KB-010",
+        "KB-007",
+        "KB-008"
+      ],
+      "tfidf_ticket_top_5": [
+        "T-091",
+        "T-041",
+        "T-048",
+        "T-044",
+        "T-042"
+      ]
+    },
+    {
+      "faiss_kb_top_5": [
+        "KB-019",
+        "KB-009",
+        "KB-011",
+        "KB-013",
+        "KB-012"
+      ],
+      "faiss_ticket_top_5": [
+        "T-056",
+        "T-084",
+        "T-076",
+        "T-068",
+        "T-052"
+      ],
+      "query_id": "Q-006",
+      "relevant_kb_ids": [
+        "KB-011",
+        "KB-012"
+      ],
+      "relevant_ticket_ids": [
+        "T-051"
+      ],
+      "tfidf_kb_top_5": [
+        "KB-015",
+        "KB-019",
+        "KB-014",
+        "KB-009",
+        "KB-021"
+      ],
+      "tfidf_ticket_top_5": [
+        "T-056",
+        "T-117",
+        "T-084",
+        "T-034",
+        "T-077"
+      ]
+    },
+    {
+      "faiss_kb_top_5": [
+        "KB-014",
+        "KB-013",
+        "KB-002",
+        "KB-018",
+        "KB-001"
+      ],
+      "faiss_ticket_top_5": [
+        "T-067",
+        "T-064",
+        "T-013",
+        "T-065",
+        "T-008"
+      ],
+      "query_id": "Q-007",
+      "relevant_kb_ids": [
+        "KB-013",
+        "KB-014"
+      ],
+      "relevant_ticket_ids": [
+        "T-061"
+      ],
+      "tfidf_kb_top_5": [
+        "KB-017",
+        "KB-018",
+        "KB-022",
+        "KB-014",
+        "KB-012"
+      ],
+      "tfidf_ticket_top_5": [
+        "T-067",
+        "T-063",
+        "T-044",
+        "T-065",
+        "T-106"
+      ]
+    },
+    {
+      "faiss_kb_top_5": [
+        "KB-015",
+        "KB-013",
+        "KB-016",
+        "KB-014",
+        "KB-018"
+      ],
+      "faiss_ticket_top_5": [
+        "T-071",
+        "T-063",
+        "T-076",
+        "T-082",
+        "T-062"
+      ],
+      "query_id": "Q-008",
+      "relevant_kb_ids": [
+        "KB-015",
+        "KB-016"
+      ],
+      "relevant_ticket_ids": [
+        "T-071"
+      ],
+      "tfidf_kb_top_5": [
+        "KB-015",
+        "KB-016",
+        "KB-014",
+        "KB-019",
+        "KB-021"
+      ],
+      "tfidf_ticket_top_5": [
+        "T-025",
+        "T-093",
+        "T-071",
+        "T-075",
+        "T-073"
+      ]
+    },
+    {
+      "faiss_kb_top_5": [
+        "KB-013",
+        "KB-014",
+        "KB-018",
+        "KB-015",
+        "KB-017"
+      ],
+      "faiss_ticket_top_5": [
+        "T-082",
+        "T-081",
+        "T-087",
+        "T-063",
+        "T-084"
+      ],
+      "query_id": "Q-009",
+      "relevant_kb_ids": [
+        "KB-017",
+        "KB-018"
+      ],
+      "relevant_ticket_ids": [
+        "T-081"
+      ],
+      "tfidf_kb_top_5": [
+        "KB-018",
+        "KB-014",
+        "KB-023",
+        "KB-016",
+        "KB-022"
+      ],
+      "tfidf_ticket_top_5": [
+        "T-021",
+        "T-036",
+        "T-061",
+        "T-114",
+        "T-091"
+      ]
+    },
+    {
+      "faiss_kb_top_5": [
+        "KB-019",
+        "KB-008",
+        "KB-009",
+        "KB-010",
+        "KB-007"
+      ],
+      "faiss_ticket_top_5": [
+        "T-041",
+        "T-098",
+        "T-092",
+        "T-044",
+        "T-091"
+      ],
+      "query_id": "Q-010",
+      "relevant_kb_ids": [
+        "KB-019"
+      ],
+      "relevant_ticket_ids": [
+        "T-091"
+      ],
+      "tfidf_kb_top_5": [
+        "KB-019",
+        "KB-008",
+        "KB-015",
+        "KB-005",
+        "KB-009"
+      ],
+      "tfidf_ticket_top_5": [
+        "T-044",
+        "T-091",
+        "T-041",
+        "T-052",
+        "T-092"
+      ]
+    },
+    {
+      "faiss_kb_top_5": [
+        "KB-022",
+        "KB-021",
+        "KB-023",
+        "KB-012",
+        "KB-009"
+      ],
+      "faiss_ticket_top_5": [
+        "T-102",
+        "T-108",
+        "T-101",
+        "T-103",
+        "T-048"
+      ],
+      "query_id": "Q-011",
+      "relevant_kb_ids": [
+        "KB-021",
+        "KB-022"
+      ],
+      "relevant_ticket_ids": [
+        "T-101"
+      ],
+      "tfidf_kb_top_5": [
+        "KB-021",
+        "KB-015",
+        "KB-010",
+        "KB-013",
+        "KB-016"
+      ],
+      "tfidf_ticket_top_5": [
+        "T-103",
+        "T-066",
+        "T-102",
+        "T-034",
+        "T-095"
+      ]
+    },
+    {
+      "faiss_kb_top_5": [
+        "KB-003",
+        "KB-004",
+        "KB-001",
+        "KB-002",
+        "KB-023"
+      ],
+      "faiss_ticket_top_5": [
+        "T-114",
+        "T-016",
+        "T-117",
+        "T-001",
+        "T-112"
+      ],
+      "query_id": "Q-012",
+      "relevant_kb_ids": [
+        "KB-023"
+      ],
+      "relevant_ticket_ids": [
+        "T-111"
+      ],
+      "tfidf_kb_top_5": [
+        "KB-014",
+        "KB-002",
+        "KB-018",
+        "KB-011",
+        "KB-006"
+      ],
+      "tfidf_ticket_top_5": [
+        "T-114",
+        "T-113",
+        "T-016",
+        "T-031",
+        "T-025"
+      ]
+    },
+    {
+      "faiss_kb_top_5": [
+        "KB-001",
+        "KB-002",
+        "KB-004",
+        "KB-005",
+        "KB-003"
+      ],
+      "faiss_ticket_top_5": [
+        "T-006",
+        "T-004",
+        "T-003",
+        "T-007",
+        "T-117"
+      ],
+      "query_id": "Q-013",
+      "relevant_kb_ids": [
+        "KB-001",
+        "KB-005"
+      ],
+      "relevant_ticket_ids": [],
+      "tfidf_kb_top_5": [
+        "KB-012",
+        "KB-001",
+        "KB-008",
+        "KB-002",
+        "KB-018"
+      ],
+      "tfidf_ticket_top_5": [
+        "T-096",
+        "T-053",
+        "T-005",
+        "T-006",
+        "T-046"
+      ]
+    },
+    {
+      "faiss_kb_top_5": [
+        "KB-015",
+        "KB-013",
+        "KB-016",
+        "KB-014",
+        "KB-011"
+      ],
+      "faiss_ticket_top_5": [
+        "T-061",
+        "T-071",
+        "T-084",
+        "T-073",
+        "T-072"
+      ],
+      "query_id": "Q-014",
+      "relevant_kb_ids": [
+        "KB-013",
+        "KB-015"
+      ],
+      "relevant_ticket_ids": [],
+      "tfidf_kb_top_5": [
+        "KB-008",
+        "KB-014",
+        "KB-015",
+        "KB-013",
+        "KB-019"
+      ],
+      "tfidf_ticket_top_5": [
+        "T-074",
+        "T-032",
+        "T-063",
+        "T-052",
+        "T-061"
+      ]
+    },
+    {
+      "faiss_kb_top_5": [
+        "KB-010",
+        "KB-019",
+        "KB-009",
+        "KB-007",
+        "KB-008"
+      ],
+      "faiss_ticket_top_5": [
+        "T-035",
+        "T-033",
+        "T-048",
+        "T-031",
+        "T-036"
+      ],
+      "query_id": "Q-015",
+      "relevant_kb_ids": [
+        "KB-007",
+        "KB-009"
+      ],
+      "relevant_ticket_ids": [],
+      "tfidf_kb_top_5": [
+        "KB-019",
+        "KB-009",
+        "KB-014",
+        "KB-007",
+        "KB-010"
+      ],
+      "tfidf_ticket_top_5": [
+        "T-035",
+        "T-068",
+        "T-043",
+        "T-086",
+        "T-083"
+      ]
+    },
+    {
+      "faiss_kb_top_5": [
+        "KB-015",
+        "KB-016",
+        "KB-018",
+        "KB-013",
+        "KB-012"
+      ],
+      "faiss_ticket_top_5": [
+        "T-072",
+        "T-083",
+        "T-088",
+        "T-087",
+        "T-082"
+      ],
+      "query_id": "Q-016",
+      "relevant_kb_ids": [
+        "KB-017",
+        "KB-018"
+      ],
+      "relevant_ticket_ids": [],
+      "tfidf_kb_top_5": [
+        "KB-016",
+        "KB-015",
+        "KB-018",
+        "KB-008",
+        "KB-012"
+      ],
+      "tfidf_ticket_top_5": [
+        "T-072",
+        "T-044",
+        "T-093",
+        "T-102",
+        "T-042"
+      ]
+    }
+  ],
+  "relevance_policy": "Only explicitly labeled source IDs count; unlabeled source types are excluded.",
+  "shared_source_text": "ticket_embedding_text and kb_embedding_text",
+  "source_counts": {
+    "kb_articles": 22,
+    "tickets": 96
+  },
+  "tfidf": {
+    "kb_articles": {
+      "mrr": 0.5585,
+      "queries": 16,
+      "recall_at_1": 0.2188,
+      "recall_at_3": 0.4375,
+      "recall_at_5": 0.625
+    },
+    "tickets": {
+      "mrr": 0.2055,
+      "queries": 12,
+      "recall_at_1": 0.0,
+      "recall_at_3": 0.4167,
+      "recall_at_5": 0.4167
+    }
+  }
+}
