@@ -1,8 +1,8 @@
 # Intelligent Support Ticket Resolution Assistant
 
 This repository includes a FastAPI service, local data and semantic search,
-Gemini complaint analysis, cited RAG resolution, and controlled ingestion.
-The Streamlit frontend and deployment are planned for later phases.
+Gemini complaint analysis, cited RAG resolution, controlled ingestion, and a
+Streamlit support-agent frontend. Deployment is planned for a later phase.
 
 ## Run locally
 
@@ -28,11 +28,28 @@ Then run:
 ```text
 cd backend
 python -m pip install -r requirements.txt
-python -m uvicorn app.main:app --reload
+python -m app.seed
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
 Open `http://127.0.0.1:8000/health` to see `{"status":"ok"}`.
-Run `python -m pytest` from `backend/` to execute the tests.
+In a second terminal, from the repository root with the same virtual
+environment activated, run:
+
+```text
+python -m pip install -r frontend/requirements.txt
+python -m streamlit run frontend/app.py --server.address 127.0.0.1 --server.port 8501
+```
+
+Open `http://127.0.0.1:8501` for the agent page. It sends the complaint to
+FastAPI's `/resolve` route and displays analysis, approved matches, a cited
+resolution, and evidence status. It does not call Gemini directly. Set
+`API_BASE_URL` in the frontend process environment to use a different backend;
+the default is `http://127.0.0.1:8000`. For example, in PowerShell use
+`$env:API_BASE_URL = "http://127.0.0.1:8000"` before starting Streamlit.
+Run `python -m pytest -q` from `backend/` for backend tests, and
+`python -m pytest -q frontend/tests` from the repository root for frontend
+tests.
 
 `APP_TITLE` is optional and changes the API title. `.env.example` lists the
 available variables. The API reads environment variables and the ignored
