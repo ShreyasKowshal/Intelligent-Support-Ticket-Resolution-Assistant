@@ -137,6 +137,24 @@ def status_is(page, label):
     return any(label in item.value for item in page.markdown)
 
 
+@pytest.mark.parametrize(
+    ("state", "label", "disabled"),
+    [
+        ("ready", "Backend ready", False),
+        ("starting", "Starting backend", True),
+        ("unavailable", "Backend unavailable", True),
+    ],
+)
+def test_status_text_is_rendered_for_every_backend_state(monkeypatch, state, label, disabled):
+    monkeypatch.setattr(api_client, "check_backend_readiness", lambda: state)
+    page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
+    assert any(
+        "backend-status" in item.value and label in item.value
+        for item in page.markdown
+    )
+    assert page.get_by_key("submit_complaint").disabled is disabled
+
+
 def test_ready_status_enables_submission_and_does_not_resolve(local_api, monkeypatch):
     calls = []
     original = api_client.resolve_complaint

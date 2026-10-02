@@ -143,12 +143,8 @@ def main() -> None:
     st.set_page_config(page_title="Intelligent Support Ticket Resolution Assistant", page_icon="🎧", layout="wide")
     st.markdown("""
         <style>
-        .block-container { max-width: 1200px; padding-top: .9rem; }
-        .backend-status { font-size: .78rem; font-weight: 550; line-height: 1.2;
-            padding: .1rem 0; text-align: right; white-space: nowrap; }
-        .backend-status.starting { color: #765000; }
-        .backend-status.ready { color: #135c36; }
-        .backend-status.unavailable { color: #912323; }
+        .backend-status { color: inherit; font-size: .8rem; font-weight: 600;
+            line-height: 1.35; padding: .2rem 0; text-align: right; white-space: nowrap; }
         </style>
     """, unsafe_allow_html=True)
     st.session_state.setdefault("complaint", "")
@@ -161,7 +157,7 @@ def main() -> None:
     def backend_status_panel() -> None:
         show_backend_status()
 
-    _, status_column = st.columns([5, 1.5], vertical_alignment="top")
+    _, status_column = st.columns([5, 2], vertical_alignment="top")
     with status_column:
         backend_status_panel()
     st.title("Intelligent Support Ticket Resolution Assistant")
