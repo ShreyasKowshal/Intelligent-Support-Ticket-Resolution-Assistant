@@ -66,9 +66,9 @@ def clear_previous_result() -> None:
 def show_analysis(result: ResolveResult) -> None:
     analysis = result.analysis
     st.header("1. Complaint Analysis")
-    if analysis.needs_review:
+    if analysis.needs_review and not result.non_actionable:
         st.warning("Agent review required: verify this classification before advising the customer.")
-    if analysis.severity.upper() in ("HIGH", "CRITICAL"):
+    if analysis.severity.upper() in ("HIGH", "CRITICAL") and not result.non_actionable:
         st.warning(f"{analysis.severity.title()} severity — prioritize this case.")
     left, middle, right, sentiment = st.columns(4)
     left.metric("Category", analysis.category)
@@ -165,16 +165,21 @@ def main() -> None:
 
     with st.container(border=True):
         st.subheader("Customer complaint")
-        st.text_area(
+        complaint = st.text_area(
             "Customer complaint", key="complaint", height=170,
             label_visibility="collapsed",
             placeholder="Paste the customer's raw telecom complaint here...",
             help=f"Up to {MAX_COMPLAINT_LENGTH} characters.",
             on_change=clear_previous_result,
         )
+        st.caption(f"{len(complaint)} / {MAX_COMPLAINT_LENGTH} characters")
+        if len(complaint) > MAX_COMPLAINT_LENGTH:
+            st.error(f"Complaint must be {MAX_COMPLAINT_LENGTH} characters or fewer.")
         if st.button(
             "Analyze & Resolve", key="submit_complaint", type="primary",
-            disabled=st.session_state.backend_state != "ready", use_container_width=True,
+            disabled=(st.session_state.backend_state != "ready"
+                      or not complaint.strip() or len(complaint) > MAX_COMPLAINT_LENGTH),
+            use_container_width=True,
         ):
             st.session_state.result = None
             st.session_state.error_message = None
@@ -194,15 +199,23 @@ def main() -> None:
     if result is not None:
         with st.container(border=True):
             show_analysis(result)
-        ticket_column, kb_column = st.columns(2, gap="large")
-        with ticket_column, st.container(border=True):
-            show_tickets(result)
-        with kb_column, st.container(border=True):
-            show_kb_articles(result)
-        with st.container(border=True):
-            show_resolution(result)
-        with st.container(border=True):
-            show_sources_and_system(result)
+        if result.non_actionable:
+            with st.container(border=True):
+                st.info("No clear telecom issue was identified. Please enter a customer complaint describing the problem.")
+                st.markdown("Please provide the affected telecom service, what is not working, and when the issue occurs.")
+                st.caption("Retrieval and resolution drafting were intentionally skipped for this input.")
+                st.subheader("System Information")
+                st.caption(f"Backend processing time: {result.latency_ms:,.0f} ms")
+        else:
+            ticket_column, kb_column = st.columns(2, gap="large")
+            with ticket_column, st.container(border=True):
+                show_tickets(result)
+            with kb_column, st.container(border=True):
+                show_kb_articles(result)
+            with st.container(border=True):
+                show_resolution(result)
+            with st.container(border=True):
+                show_sources_and_system(result)
 
 
 if __name__ == "__main__":

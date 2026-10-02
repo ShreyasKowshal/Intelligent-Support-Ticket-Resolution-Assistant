@@ -5,9 +5,9 @@ from typing import Literal
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from backend.app.config import MAX_COMPLAINT_LENGTH
 
 DEFAULT_API_BASE_URL = "http://127.0.0.1:8000"
-MAX_COMPLAINT_LENGTH = 4000
 REQUEST_TIMEOUT = httpx.Timeout(connect=5.0, read=90.0, write=10.0, pool=5.0)
 READINESS_TIMEOUT = httpx.Timeout(connect=2.0, read=3.0, write=2.0, pool=2.0)
 ReadinessState = Literal["ready", "starting", "unavailable"]
@@ -76,6 +76,7 @@ class ResolveResult(ApiModel):
     resolution: Resolution
     source_ids: list[str]
     insufficient_evidence: bool
+    non_actionable: bool = False
     latency_ms: float = Field(ge=0, allow_inf_nan=False)
 
     @model_validator(mode="after")
@@ -88,6 +89,8 @@ class ResolveResult(ApiModel):
         if self.insufficient_evidence:
             if self.resolution.resolution_steps or self.source_ids:
                 raise ValueError("insufficient evidence must not contain a recommendation")
+            if self.non_actionable and (self.tickets or self.kb_articles):
+                raise ValueError("non-actionable input must not contain retrieved evidence")
         elif not self.resolution.resolution_steps:
             raise ValueError("recommendation has no cited steps")
         elif any(
@@ -162,9 +165,9 @@ def resolve_complaint(
     """Submit one complaint to FastAPI; never call Gemini from this process."""
     if not isinstance(complaint, str) or not complaint.strip():
         raise FrontendError("Enter a customer complaint before continuing.")
-    complaint = complaint.strip()
     if len(complaint) > MAX_COMPLAINT_LENGTH:
-        raise FrontendError(f"Keep the complaint under {MAX_COMPLAINT_LENGTH} characters.")
+        raise FrontendError(f"Complaint must be {MAX_COMPLAINT_LENGTH} characters or fewer.")
+    complaint = complaint.strip()
     url = get_api_base_url() + "/resolve"
     try:
         with httpx.Client(timeout=REQUEST_TIMEOUT, transport=transport, follow_redirects=False) as client:

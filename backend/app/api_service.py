@@ -8,6 +8,7 @@ from threading import RLock
 from dotenv import load_dotenv
 
 from app.analysis import ComplaintAnalysis, ComplaintAnalyzer
+from app.actionability import is_non_actionable_complaint
 from app.gemini_client import GeminiClient, MissingApiKeyError
 from app.ingestion import IngestionService, UpdateOutcome
 from app.llm import LLMClient
@@ -81,15 +82,26 @@ class ApiServices:
         with self._lock:
             return self._search(complaint, ticket_k, kb_k)
 
-    def resolve(self, complaint: str) -> tuple[ComplaintAnalysis, SearchResults, RAGResolution]:
+    def resolve(self, complaint: str) -> tuple[ComplaintAnalysis, SearchResults, RAGResolution, bool]:
         with self._lock:
             analysis = self._analyze(complaint)
+            if is_non_actionable_complaint(complaint, analysis):
+                return analysis, SearchResults([], []), RAGResolution(
+                    problem_summary="No clear telecom issue was identified.",
+                    resolution_steps=[],
+                    escalation_recommendation="Please describe the affected service and symptoms.",
+                    confidence_or_evidence_note=(
+                        "Retrieval was skipped because the message did not describe an actionable telecom problem."
+                    ),
+                    sources_used=[],
+                    insufficient_evidence=True,
+                ), True
             results = self._search(complaint)
             assert self.generator is not None
             resolution: RAGResolution = self.generator.generate(
                 complaint, analysis, results.tickets, results.kb_articles
             )
-            return analysis, results, resolution
+            return analysis, results, resolution, False
 
     def authorize_admin(self, supplied_key: str | None) -> None:
         if not self.admin_key:

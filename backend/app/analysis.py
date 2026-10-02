@@ -5,6 +5,7 @@ from typing import Any, Callable, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, ValidationError, field_validator
 
+from .config import MAX_COMPLAINT_LENGTH
 from .llm import LLMClient
 
 
@@ -62,6 +63,8 @@ def analysis_instruction(products: set[str], categories: set[str]) -> str:
         "Use an exact known product and category when supported by the complaint. "
         "For an unfamiliar product or issue, use 'other' for that field, set needs_review true, "
         "and optionally suggest a new category. Do not force an unfamiliar issue into a known category. "
+        "For meaningless text, casual non-telecom statements, or keyword lists without a problem, "
+        "use other for both product and category, set needs_review true, and do not suggest a category. "
         "If the issue is ambiguous or confidence is below 0.60, set needs_review true. "
         "Confidence is a self-assessed number from 0 to 1, not a calibrated probability. "
         "Severity rubric: LOW means minor inconvenience or an information request; "
@@ -104,9 +107,9 @@ class ComplaintAnalyzer:
                 raise ValueError("Product and category taxonomy must be populated")
         if not isinstance(complaint, str) or not complaint.strip():
             raise ValueError("complaint must contain text")
+        if len(complaint) > MAX_COMPLAINT_LENGTH:
+            raise ValueError(f"complaint must be at most {MAX_COMPLAINT_LENGTH} characters")
         complaint = complaint.strip()
-        if len(complaint) > 4000:
-            raise ValueError("complaint must be at most 4000 characters")
 
         raw = self.client.generate_analysis(analysis_instruction(self.products, self.categories), complaint)
         try:

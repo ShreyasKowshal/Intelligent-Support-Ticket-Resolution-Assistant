@@ -6,11 +6,16 @@ import httpx
 import pytest
 
 from frontend.api_client import (
-    BackendConnectionError, FrontendError, check_backend_readiness,
+    BackendConnectionError, FrontendError, MAX_COMPLAINT_LENGTH, check_backend_readiness,
     get_api_base_url, resolve_complaint,
 )
+from backend.app.config import MAX_COMPLAINT_LENGTH as BACKEND_COMPLAINT_LENGTH
 
 COMPLAINT = "My broadband drops every evening around 8 PM."
+
+
+def test_frontend_and_backend_use_one_complaint_limit():
+    assert MAX_COMPLAINT_LENGTH == BACKEND_COMPLAINT_LENGTH == 3000
 
 
 def response_body():
@@ -120,13 +125,26 @@ def test_unknown_and_insufficient_evidence_responses_parse():
     assert result.insufficient_evidence is True
 
 
-@pytest.mark.parametrize("invalid", ["", "   ", "x" * 4001])
+@pytest.mark.parametrize("invalid", ["", "   ", "x" * 3001])
 def test_local_complaint_validation_prevents_http(invalid):
     def fail(_request):
         raise AssertionError("HTTP should not be called")
 
     with pytest.raises(FrontendError):
         resolve_complaint(invalid, transport=httpx.MockTransport(fail))
+
+
+def test_exact_limit_and_multiline_unicode_are_submitted_without_truncation():
+    complaints = ["a" * 3000, "My broadband drops at night.\nThe router shows 🔴."]
+    submitted = []
+
+    def handler(request):
+        submitted.append(json.loads(request.content)["complaint"])
+        return httpx.Response(200, json=response_body())
+
+    for complaint in complaints:
+        resolve_complaint(complaint, transport=httpx.MockTransport(handler))
+    assert submitted == complaints
 
 
 @pytest.mark.parametrize("code,expected", [

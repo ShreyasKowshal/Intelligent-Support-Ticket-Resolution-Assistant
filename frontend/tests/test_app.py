@@ -127,7 +127,7 @@ def local_api(tmp_path, monkeypatch):
 
 def submit(complaint):
     page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
-    page.text_area[0].set_value(complaint)
+    page.text_area[0].set_value(complaint).run(timeout=30)
     page.get_by_key("submit_complaint").click().run(timeout=30)
     assert not page.exception
     return page
@@ -152,6 +152,7 @@ def test_status_text_is_rendered_for_every_backend_state(monkeypatch, state, lab
         "backend-status" in item.value and label in item.value
         for item in page.markdown
     )
+    page.text_area[0].set_value("My broadband is down.").run(timeout=30)
     assert page.get_by_key("submit_complaint").disabled is disabled
 
 
@@ -166,6 +167,7 @@ def test_ready_status_enables_submission_and_does_not_resolve(local_api, monkeyp
     monkeypatch.setattr(api_client, "resolve_complaint", counted)
     page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
     assert status_is(page, "🟢 Backend ready")
+    page.text_area[0].set_value(COMPLAINTS[0][0]).run(timeout=30)
     assert not page.get_by_key("submit_complaint").disabled
     assert calls == []
 
@@ -226,7 +228,7 @@ def test_one_click_makes_one_resolve_call_even_after_rerun(local_api, monkeypatc
 
     monkeypatch.setattr(api_client, "resolve_complaint", counted)
     page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
-    page.text_area[0].set_value(COMPLAINTS[0][0])
+    page.text_area[0].set_value(COMPLAINTS[0][0]).run(timeout=30)
     page.get_by_key("submit_complaint").click().run(timeout=30)
     page.run(timeout=30)
     assert len(calls) == 1
@@ -244,7 +246,7 @@ def test_connection_loss_restarts_status_without_resubmitting(monkeypatch):
 
     monkeypatch.setattr(api_client, "resolve_complaint", connection_lost)
     page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
-    page.text_area[0].set_value("My broadband is down.")
+    page.text_area[0].set_value("My broadband is down.").run(timeout=30)
     page.get_by_key("submit_complaint").click().run(timeout=30)
     assert status_is(page, "🟡 Starting backend...")
     assert page.get_by_key("submit_complaint").disabled
@@ -289,6 +291,32 @@ def test_sample_controls_are_absent(local_api):
     assert len(page.button) == 1
     assert page.text_area[0].value == ""
     assert not page.header
+
+
+def test_complaint_counter_and_input_validation(local_api):
+    page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
+    assert page.get_by_key("submit_complaint").disabled
+    assert any("0 / 3000 characters" in item.value for item in page.caption)
+    page.text_area[0].set_value("   ").run(timeout=30)
+    assert page.get_by_key("submit_complaint").disabled
+    page.text_area[0].set_value("a" * 3000).run(timeout=30)
+    assert any("3000 / 3000 characters" in item.value for item in page.caption)
+    assert not page.get_by_key("submit_complaint").disabled
+    page.text_area[0].set_value("a" * 3001).run(timeout=30)
+    assert page.text_area[0].value == "a" * 3001
+    assert any("3001 / 3000 characters" in item.value for item in page.caption)
+    assert any("Complaint must be 3000 characters or fewer" in item.value for item in page.error)
+    assert page.get_by_key("submit_complaint").disabled
+
+
+def test_non_actionable_input_shows_clarification_without_evidence(local_api):
+    page = submit("😂")
+    assert [item.value for item in page.header] == ["1. Complaint Analysis"]
+    assert not page.expander
+    assert any("No clear telecom issue was identified" in item.value for item in page.info)
+    assert any("Retrieval and resolution drafting were intentionally skipped" in item.value
+               for item in page.caption)
+    assert not any(item.value.startswith("Citations: ") for item in page.caption)
 
 
 def test_editing_complaint_clears_previous_recommendation(local_api):

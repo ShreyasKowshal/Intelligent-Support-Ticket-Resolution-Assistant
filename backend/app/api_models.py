@@ -3,6 +3,7 @@
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.analysis import ComplaintAnalysis
+from app.config import MAX_COMPLAINT_LENGTH
 from app.rag import RAGResolution
 
 
@@ -11,7 +12,7 @@ class ApiModel(BaseModel):
 
 
 class ComplaintRequest(ApiModel):
-    complaint: str = Field(min_length=1, max_length=4000)
+    complaint: str = Field(min_length=1, max_length=MAX_COMPLAINT_LENGTH)
 
     @field_validator("complaint")
     @classmethod
@@ -62,6 +63,7 @@ class ResolveResponse(ApiModel):
     resolution: RAGResolution
     source_ids: list[str]
     insufficient_evidence: bool
+    non_actionable: bool = False
     latency_ms: float = Field(ge=0)
 
 

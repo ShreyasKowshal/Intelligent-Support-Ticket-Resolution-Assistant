@@ -8,6 +8,7 @@ from typing import Any, Mapping
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, ValidationError, field_validator
 
 from .analysis import ComplaintAnalysis
+from .config import MAX_COMPLAINT_LENGTH
 from .llm import LLMClient
 from .search import KBMatch, TicketMatch
 
@@ -114,8 +115,8 @@ class RAGGenerator:
         tickets: list[TicketMatch],
         kb_articles: list[KBMatch],
     ) -> RAGResolution:
-        if not isinstance(complaint, str) or not complaint.strip() or len(complaint) > 4000:
-            raise ValueError("complaint must contain 1 to 4000 characters")
+        if not isinstance(complaint, str) or not complaint.strip() or len(complaint) > MAX_COMPLAINT_LENGTH:
+            raise ValueError(f"complaint must contain 1 to {MAX_COMPLAINT_LENGTH} characters")
         tickets = self._bounded(tickets)
         kb_articles = self._bounded(kb_articles)
         # Put approved KB guidance first so its priority is visible in the context.

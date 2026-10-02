@@ -102,10 +102,91 @@ def test_analyze_valid_unknown_and_validation(api):
     assert unknown["category"] == "other"
     assert unknown["suggested_category"] == "optical_signal_fault"
     assert unknown["needs_review"] is True
-    for complaint in ("", "   ", "x" * 4001):
+    for complaint in ("", "   ", "x" * 3001):
         bad = client.post("/analyze", json={"complaint": complaint})
         assert bad.status_code == 422
         assert complaint not in bad.text if complaint else True
+
+
+def test_complaint_limit_applies_to_every_api_route(api):
+    client, _, _ = api
+    for route in ("/analyze", "/search", "/resolve"):
+        assert client.post(route, json={"complaint": "a" * 3000}).status_code == 200
+        rejected = client.post(route, json={"complaint": "a" * 3001})
+        assert rejected.status_code == 422
+        assert rejected.json()["error"]["code"] == "validation_error"
+        assert "a" * 3001 not in rejected.text
+
+
+@pytest.mark.parametrize("complaint", [
+    "x", "afehtdgsdxzvsawe", "asdfghjkl", "😂", "123456789", "!!!@@@###",
+    "I went to a movie today.", "I played a game today.",
+    "hello hello hello", "phone laptop tablet mobile", "aaaaaa",
+    "https://example.com/fragment",
+])
+def test_non_actionable_input_skips_search_and_rag(api, complaint):
+    client, service, provider = api
+    provider.result = {**ANALYSIS, "category": "other", "product": "other",
+                       "confidence": 0.2, "needs_review": True}
+    service.search.search = lambda *_args, **_kwargs: pytest.fail("search must be skipped")
+    provider.generate_resolution = lambda *_args: pytest.fail("RAG must be skipped")
+    response = client.post("/resolve", json={"complaint": complaint})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["analysis"]
+    assert body["non_actionable"] is True
+    assert body["tickets"] == body["kb_articles"] == []
+    assert body["source_ids"] == body["resolution"]["sources_used"] == []
+    assert body["resolution"]["resolution_steps"] == []
+    assert body["insufficient_evidence"] is True
+    assert "No clear telecom issue" in body["resolution"]["problem_summary"]
+    assert "Retrieval was skipped" in body["resolution"]["confidence_or_evidence_note"]
+    assert "escalat" not in body["resolution"]["escalation_recommendation"].lower()
+
+
+@pytest.mark.parametrize("complaint", [
+    "My mobile is not working properly.", "Internet is slow sometimes.",
+    "There is some issue with my SIM.", "My broadband has a problem.",
+    "Calls are not working well.", "My phone network is bad.",
+])
+def test_vague_telecom_input_still_searches(api, complaint):
+    client, service, provider = api
+    calls = []
+    original = service.search.search
+
+    def counted(*args, **kwargs):
+        calls.append(args)
+        return original(*args, **kwargs)
+
+    service.search.search = counted
+    provider.result = {**ANALYSIS, "category": "other", "product": "other",
+                       "confidence": 0.45, "needs_review": True}
+    response = client.post("/resolve", json={"complaint": complaint})
+    assert response.status_code == 200
+    assert response.json()["non_actionable"] is False
+    assert len(calls) == 1
+    assert response.json()["tickets"] and response.json()["kb_articles"]
+
+
+@pytest.mark.parametrize("analysis_changes", [
+    {"needs_review": True}, {"confidence": 0.55},
+])
+def test_review_or_moderate_confidence_alone_does_not_block_retrieval(api, analysis_changes):
+    client, service, provider = api
+    provider.result = {**ANALYSIS, **analysis_changes}
+    response = client.post("/resolve", json={"complaint": COMPLAINT})
+    assert response.status_code == 200
+    assert response.json()["non_actionable"] is False
+    assert response.json()["tickets"] and response.json()["kb_articles"]
+
+
+def test_unfamiliar_wording_recognized_by_analysis_is_not_blocked(api):
+    client, _, provider = api
+    provider.result = {**ANALYSIS, "category": "mobile_network", "product": "mobile_prepaid"}
+    response = client.post("/resolve", json={"complaint": "My texts never arrive."})
+    assert response.status_code == 200
+    assert response.json()["non_actionable"] is False
+    assert response.json()["tickets"] and response.json()["kb_articles"]
 
 
 def test_provider_failure_and_missing_configuration(api):

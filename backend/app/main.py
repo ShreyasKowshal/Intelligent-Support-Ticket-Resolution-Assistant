@@ -206,12 +206,14 @@ def create_app(service_factory: Callable[[], ApiServices] = build_services) -> F
     @application.post("/resolve", response_model=ResolveResponse)
     def resolve(body: ComplaintRequest, service: ApiServices = Depends(services)) -> ResolveResponse:
         start = perf_counter()
-        analysis, results, resolution = service.resolve(body.complaint)
+        analysis, results, resolution, non_actionable = service.resolve(body.complaint)
         tickets, kb_articles = _matches(results)
         return ResolveResponse(
             analysis=analysis, tickets=tickets, kb_articles=kb_articles,
             resolution=resolution, source_ids=resolution.sources_used,
-            insufficient_evidence=resolution.insufficient_evidence, latency_ms=_elapsed(start),
+            insufficient_evidence=resolution.insufficient_evidence,
+            non_actionable=non_actionable,
+            latency_ms=_elapsed(start),
         )
 
     @application.post("/admin/tickets", response_model=UpdateResponse)
