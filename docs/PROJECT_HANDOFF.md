@@ -155,6 +155,15 @@ No live output was merged into deterministic scores, and no key was printed.
 This appears environment-specific, not evidence of a frontend defect. Repeat
 live/human evaluation on the user's reachable environment.
 
+The user also manually verified the full live local pipeline on their laptop:
+Streamlit → FastAPI → Gemini analysis → semantic retrieval → RAG generation
+→ citations → frontend display. For "My broadband drops every evening around
+8 PM and I already restarted the router twice.", the result showed complaint
+analysis, similar resolved tickets, relevant KB articles, grounded resolution,
+per-step citations, an escalation recommendation, and backend processing
+latency. Direct Gemini SDK access works locally; prior Codex `ConnectError`
+failures appear environment-specific.
+
 ## Design constraints and known limitations
 
 - Evidence eligibility is resolved+approved for tickets and approved for KB.
