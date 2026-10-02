@@ -14,6 +14,8 @@ import uvicorn
 from sqlalchemy.engine import URL
 from streamlit.testing.v1 import AppTest
 
+import frontend.api_client as api_client
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "backend"))
 
@@ -126,9 +128,109 @@ def local_api(tmp_path, monkeypatch):
 def submit(complaint):
     page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
     page.text_area[0].set_value(complaint)
-    page.button[0].click().run(timeout=30)
+    page.get_by_key("submit_complaint").click().run(timeout=30)
     assert not page.exception
     return page
+
+
+def status_is(page, label):
+    return any(label in item.value for item in page.markdown)
+
+
+def test_ready_status_enables_submission_and_does_not_resolve(local_api, monkeypatch):
+    calls = []
+    original = api_client.resolve_complaint
+
+    def counted(*args, **kwargs):
+        calls.append(args)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(api_client, "resolve_complaint", counted)
+    page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
+    assert status_is(page, "🟢 Backend ready")
+    assert not page.get_by_key("submit_complaint").disabled
+    assert calls == []
+
+
+def test_failed_first_check_is_yellow_and_submission_is_disabled(monkeypatch):
+    calls = []
+
+    def starting():
+        calls.append("ready")
+        return "starting"
+
+    monkeypatch.setattr(api_client, "check_backend_readiness", starting)
+    monkeypatch.setattr(api_client, "resolve_complaint", lambda *_: pytest.fail("resolve was called"))
+    page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
+    assert status_is(page, "🟡 Starting backend...")
+    assert page.get_by_key("submit_complaint").disabled
+    assert calls == ["ready"]
+    page.run(timeout=30)  # A typing rerun must not cause another early poll.
+    assert calls == ["ready"]
+
+
+def test_starting_backend_becomes_ready_on_later_poll(monkeypatch):
+    states = iter(["starting", "ready"])
+    monkeypatch.setattr(api_client, "check_backend_readiness", lambda: next(states))
+    page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
+    page.text_area[0].set_value("My broadband is down.").run(timeout=30)
+    assert status_is(page, "🟡 Starting backend...")
+    page.session_state["backend_next_check_at"] = 0.0
+    page.run(timeout=30)
+    assert status_is(page, "🟢 Backend ready")
+    assert not page.get_by_key("submit_complaint").disabled
+    assert page.text_area[0].value == "My broadband is down."
+
+
+def test_retry_window_expires_to_red_and_manual_retry_preserves_complaint(monkeypatch):
+    states = iter(["starting", "starting", "ready"])
+    monkeypatch.setattr(api_client, "check_backend_readiness", lambda: next(states))
+    page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
+    page.text_area[0].set_value("My broadband is down.").run(timeout=30)
+    page.session_state["backend_started_at"] = time.monotonic() - 71
+    page.session_state["backend_next_check_at"] = 0.0
+    page.run(timeout=30)
+    assert status_is(page, "🔴 Backend unavailable")
+    assert page.get_by_key("submit_complaint").disabled
+    page.get_by_key("retry_backend_connection").click().run(timeout=30)
+    assert status_is(page, "🟢 Backend ready")
+    assert not page.get_by_key("submit_complaint").disabled
+    assert page.text_area[0].value == "My broadband is down."
+
+
+def test_one_click_makes_one_resolve_call_even_after_rerun(local_api, monkeypatch):
+    calls = []
+    original = api_client.resolve_complaint
+
+    def counted(*args, **kwargs):
+        calls.append(args)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(api_client, "resolve_complaint", counted)
+    page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
+    page.text_area[0].set_value(COMPLAINTS[0][0])
+    page.get_by_key("submit_complaint").click().run(timeout=30)
+    page.run(timeout=30)
+    assert len(calls) == 1
+    assert page.header
+
+
+def test_connection_loss_restarts_status_without_resubmitting(monkeypatch):
+    states = iter(["ready", "starting"])
+    calls = []
+    monkeypatch.setattr(api_client, "check_backend_readiness", lambda: next(states))
+
+    def connection_lost(_complaint):
+        calls.append("resolve")
+        raise api_client.BackendConnectionError("Backend is starting. Please wait until the status changes to Ready.")
+
+    monkeypatch.setattr(api_client, "resolve_complaint", connection_lost)
+    page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
+    page.text_area[0].set_value("My broadband is down.")
+    page.get_by_key("submit_complaint").click().run(timeout=30)
+    assert status_is(page, "🟡 Starting backend...")
+    assert page.get_by_key("submit_complaint").disabled
+    assert calls == ["resolve"]
 
 
 def test_four_demo_complaints_show_all_sections_and_citations(local_api):
@@ -151,6 +253,7 @@ def test_four_demo_complaints_show_all_sections_and_citations(local_api):
 def test_insufficient_evidence_has_no_confident_steps(local_api):
     page = submit("noevidence My broadband service has an unfamiliar failure.")
     assert any("Insufficient evidence" in item.value for item in page.warning)
+    assert any("Agent review required" in item.value for item in page.warning)
     assert not any(item.value.startswith("Citations: ") for item in page.caption)
     assert any("No sources were cited" in item.value for item in page.info)
 
@@ -162,13 +265,12 @@ def test_provider_error_is_cleanly_displayed(local_api):
     assert "private provider detail" not in str([item.value for item in page.error])
 
 
-def test_sample_selection_populates_complaint_without_submitting(local_api):
+def test_sample_controls_are_absent(local_api):
     page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
-    page.sidebar.button[0].click().run(timeout=30)
-    assert page.text_area[0].value == COMPLAINTS[0][0]
+    assert not page.sidebar.button
+    assert len(page.button) == 1
+    assert page.text_area[0].value == ""
     assert not page.header
-    page.button[0].click().run(timeout=30)
-    assert page.metric[0].value == "broadband_connectivity"
 
 
 def test_editing_complaint_clears_previous_recommendation(local_api):

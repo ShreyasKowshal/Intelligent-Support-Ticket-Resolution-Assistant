@@ -100,6 +100,10 @@ resolution, and evidence status. It does not call Gemini directly. Set
 `API_BASE_URL` in the frontend process environment to use a different backend;
 the default is `http://127.0.0.1:8000`. For example, in PowerShell use
 `$env:API_BASE_URL = "http://127.0.0.1:8000"` before starting Streamlit.
+The page checks `/ready` before enabling submission. During a backend cold
+start, it checks about every five seconds for up to 70 seconds while the agent
+can type; an unavailable state offers a manual retry. Only clicking
+**Analyze & Resolve** sends a complaint to `/resolve`.
 Run `python -m pytest -q` from `backend/` for backend tests, and
 `python -m pytest -q frontend/tests` from the repository root for frontend
 tests.
@@ -266,7 +270,7 @@ for TF-IDF. Scripted RAG checks had 100% cited-ID validity and step citation
 coverage, while deliberately revealing that valid IDs can accompany
 conflicting or harmful advice. The saved warm fake-provider `/resolve` mean
 latency was about 21.6 ms; this excludes cold loading, network time, and
-Gemini. The final local suite has 117 backend and 21 frontend tests passing.
+Gemini. The current local suite has 117 backend and 33 frontend tests passing.
 See [the full evaluation summary](backend/evaluation/results/evaluation_summary.md)
 for denominators, MRR, failure cases, and interpretation.
 

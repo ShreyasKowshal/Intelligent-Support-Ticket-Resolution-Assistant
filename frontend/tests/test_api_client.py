@@ -5,7 +5,10 @@ import json
 import httpx
 import pytest
 
-from frontend.api_client import FrontendError, get_api_base_url, resolve_complaint
+from frontend.api_client import (
+    BackendConnectionError, FrontendError, check_backend_readiness,
+    get_api_base_url, resolve_complaint,
+)
 
 COMPLAINT = "My broadband drops every evening around 8 PM."
 
@@ -44,6 +47,44 @@ def response_body():
 
 def transport_for(status, body):
     return httpx.MockTransport(lambda _request: httpx.Response(status, json=body))
+
+
+def ready_body(**changes):
+    return {
+        "status": "ready", "database": True, "search_index": True,
+        "embedding_model": True, "gemini_configured": True, **changes,
+    }
+
+
+def test_readiness_uses_only_ready_and_requires_all_dependencies(monkeypatch):
+    monkeypatch.setenv("API_BASE_URL", "http://localhost:8765/")
+    calls = []
+
+    def handler(request):
+        calls.append((request.method, str(request.url)))
+        return httpx.Response(200, json=ready_body())
+
+    assert check_backend_readiness(transport=httpx.MockTransport(handler)) == "ready"
+    assert calls == [("GET", "http://localhost:8765/ready")]
+    assert check_backend_readiness(transport=transport_for(
+        200, ready_body(search_index=False)
+    )) == "unavailable"
+
+
+@pytest.mark.parametrize("failure", [httpx.ReadTimeout("private"), httpx.ConnectError("private")])
+def test_readiness_connection_failures_mean_starting(failure):
+    transport = httpx.MockTransport(lambda _request: (_ for _ in ()).throw(failure))
+    assert check_backend_readiness(transport=transport) == "starting"
+
+
+def test_readiness_distinguishes_startup_from_persistent_failure():
+    assert check_backend_readiness(transport=transport_for(
+        503, ready_body(status="not_ready", search_index=False)
+    )) == "starting"
+    assert check_backend_readiness(transport=transport_for(
+        503, ready_body(status="not_ready", gemini_configured=False)
+    )) == "unavailable"
+    assert check_backend_readiness(transport=transport_for(404, {})) == "unavailable"
 
 
 def test_resolve_calls_only_backend_route_and_parses_response(monkeypatch):
@@ -105,13 +146,25 @@ def test_sanitized_api_errors(code, expected):
 def test_timeout_and_connection_error_are_concise():
     for failure, expected in (
         (httpx.ReadTimeout("private timeout details"), "timed out"),
-        (httpx.ConnectError("private address"), "cannot be reached"),
+        (httpx.ConnectError("private address"), "Backend is starting"),
     ):
         transport = httpx.MockTransport(lambda _request: (_ for _ in ()).throw(failure))
         with pytest.raises(FrontendError) as error:
             resolve_complaint(COMPLAINT, transport=transport)
         assert expected in str(error.value)
         assert "private" not in str(error.value)
+
+
+def test_connection_error_has_distinct_type_for_readiness_retry():
+    transport = httpx.MockTransport(lambda _request: (_ for _ in ()).throw(httpx.ConnectError("private")))
+    with pytest.raises(BackendConnectionError):
+        resolve_complaint(COMPLAINT, transport=transport)
+
+
+def test_unexpected_server_error_is_actionable_and_sanitized():
+    with pytest.raises(FrontendError, match="unexpected error") as error:
+        resolve_complaint(COMPLAINT, transport=transport_for(500, {"detail": "private failure"}))
+    assert "private failure" not in str(error.value)
 
 
 @pytest.mark.parametrize("body", [{}, {"analysis": {}}, [1, 2, 3]])

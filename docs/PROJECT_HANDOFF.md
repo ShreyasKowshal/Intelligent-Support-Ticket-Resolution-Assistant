@@ -1,6 +1,7 @@
 # Project handoff
 
-Updated after Phase 10 hosted validation on 2026-10-02. The `develop` checkout,
+Updated after Phase 10 hosted validation and the frontend readiness update on
+2026-10-02. The `develop` checkout,
 code, tests, and `backend/evaluation/results/` are the source of truth. See the
 README for setup and the Render runbook for deployed service configuration.
 
@@ -101,6 +102,11 @@ final-documentation commit/push after hosted validation.
    insufficient-evidence and provider-error states, source IDs, and latency.
    `API_BASE_URL` configures the backend; HTTP requests have bounded timeouts.
    Commit `7a0d8c6` (`Add Streamlit frontend`).
+   A post-Phase-10 UI update removed the sample controls and added a top-right
+   `/ready` indicator. Submission stays disabled while the backend starts;
+   readiness retries every five seconds for up to 70 seconds, then offers a
+   manual retry. The six result areas and agent-review warning remain. The
+   post-update local suite has 117 backend and 33 frontend tests passing.
 9. **Phase 9 — formal evaluation:** `python -m evaluation.run_evaluation`
    builds an isolated temporary seed DB and runs label-blind fake analysis,
    real pinned-model FAISS retrieval against the 16 held-out queries, a
@@ -147,7 +153,7 @@ exclude cold model/index loading, HTTP transport, and live Gemini. `/health`
 and `/ready` returned 200 with the temporary DB, search, model, and fake
 provider ready. `/ready` does not probe Gemini's network reachability.
 Quality JSON files were byte-identical across real-model reruns; latency is
-expected to vary. The final local regression suite is **117 backend tests + 21
+expected to vary. The Phase 10 regression suite was **117 backend tests + 21
 frontend tests = 138 passed**, with one Starlette/TestClient HTTPX deprecation
 warning. API HTTP smoke passed `/health`, `/ready`, `/analyze`, `/search`, and
 `/resolve` with a fake provider.

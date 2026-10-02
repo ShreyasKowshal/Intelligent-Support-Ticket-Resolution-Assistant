@@ -1,6 +1,7 @@
 """The frontend's only connection to the support-assistant backend."""
 
 import os
+from typing import Literal
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -8,10 +9,16 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 DEFAULT_API_BASE_URL = "http://127.0.0.1:8000"
 MAX_COMPLAINT_LENGTH = 4000
 REQUEST_TIMEOUT = httpx.Timeout(connect=5.0, read=90.0, write=10.0, pool=5.0)
+READINESS_TIMEOUT = httpx.Timeout(connect=2.0, read=3.0, write=2.0, pool=2.0)
+ReadinessState = Literal["ready", "starting", "unavailable"]
 
 
 class FrontendError(Exception):
     """A short, safe message suitable for the agent-facing page."""
+
+
+class BackendConnectionError(FrontendError):
+    """The backend connection failed after the UI had been ready."""
 
 
 class ApiModel(BaseModel):
@@ -116,6 +123,39 @@ def get_api_base_url() -> str:
     return str(url).rstrip("/")
 
 
+def check_backend_readiness(*, transport: httpx.BaseTransport | None = None) -> ReadinessState:
+    """Use /ready only; transient connection and server failures may be cold starts."""
+    try:
+        url = get_api_base_url() + "/ready"
+    except FrontendError:
+        return "unavailable"
+    try:
+        with httpx.Client(timeout=READINESS_TIMEOUT, transport=transport, follow_redirects=False) as client:
+            response = client.get(url)
+    except (httpx.TimeoutException, httpx.RequestError):
+        return "starting"
+    if response.status_code in (401, 403, 404, 405):
+        return "unavailable"
+    if response.status_code not in (200, 503):
+        return "starting"
+    try:
+        details = response.json()
+        if not isinstance(details, dict):
+            return "unavailable"
+        if response.status_code == 200:
+            return "ready" if (
+                details.get("status") == "ready"
+                and all(details.get(field) is True for field in (
+                    "database", "search_index", "embedding_model", "gemini_configured"
+                ))
+            ) else "unavailable"
+        if details.get("gemini_configured") is False:
+            return "unavailable"
+        return "starting"
+    except ValueError:
+        return "unavailable" if response.status_code == 200 else "starting"
+
+
 def resolve_complaint(
     complaint: str, *, transport: httpx.BaseTransport | None = None,
 ) -> ResolveResult:
@@ -130,16 +170,21 @@ def resolve_complaint(
         with httpx.Client(timeout=REQUEST_TIMEOUT, transport=transport, follow_redirects=False) as client:
             response = client.post(url, json={"complaint": complaint})
     except httpx.TimeoutException:
-        raise FrontendError("The request timed out. Check the backend and try again.") from None
+        raise FrontendError("The analysis request timed out. Please try again.") from None
     except httpx.RequestError:
-        raise FrontendError("The backend cannot be reached. Check that FastAPI is running.") from None
+        raise BackendConnectionError(
+            "Backend is starting. Please wait until the status changes to Ready."
+        ) from None
 
     if response.status_code != 200:
         try:
             error_code = response.json().get("error", {}).get("code")
         except (ValueError, AttributeError, TypeError):
             error_code = None
-        raise FrontendError(ERROR_MESSAGES.get(error_code, "The request could not be completed. Please try again."))
+        raise FrontendError(ERROR_MESSAGES.get(
+            error_code,
+            "The backend returned an unexpected error. Please try again or check service status.",
+        ))
     try:
         return ResolveResult.model_validate(response.json())
     except (ValueError, ValidationError, TypeError):
