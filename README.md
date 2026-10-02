@@ -1,12 +1,65 @@
 # Intelligent Support Ticket Resolution Assistant
 
-This repository includes a FastAPI service, local data and semantic search,
-Gemini complaint analysis, cited RAG resolution, controlled ingestion, and a
-Streamlit support-agent frontend. Deployment is planned for a later phase.
+An agent-facing prototype for telecom support. A raw customer complaint is
+classified, matched to approved resolved tickets and knowledge-base (KB)
+articles, and turned into a cited resolution **draft for agent review**.
+Semantic retrieval handles paraphrases that keyword search can miss. The
+prototype supports reviewed new ticket classes and updated guidance.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    Agent[Support agent] --> UI[Streamlit UI]
+    UI -->|POST /resolve| API[FastAPI API]
+    API --> Analyze[Complaint analyzer]
+    API --> Search[Semantic search]
+    API --> RAG[RAG resolver]
+    Analyze --> Gemini[Gemini API]
+    RAG --> Gemini
+    Search --> Encoder[Pinned MiniLM via FastEmbed ONNX]
+    Search --> TicketsIndex[FAISS ticket index]
+    Search --> KBIndex[FAISS KB index]
+    Search --> DB[(Postgres hosted / SQLite local)]
+    DB --> Tickets[Tickets]
+    DB --> KB[KB articles]
+    DB --> Taxonomy[Taxonomy]
+    DB --> Embeddings[Versioned embeddings]
+    Search -->|Approved evidence + source IDs| RAG
+    RAG -->|Cited draft + review state| API
+    API -->|Analysis, matches, citations| UI
+    Admin[Reviewed admin ingestion] -->|Guarded API / CLI| API
+    Health["/health and /ready"] --> API
+```
+
+The frontend calls FastAPI over HTTP and never calls Gemini or the database
+directly. Separate FAISS indexes rank eligible tickets and KB articles; the
+database rechecks approval before evidence is returned. Gemini analyzes the
+complaint and drafts steps from bounded retrieved context. Citation validation
+checks exact approved source IDs and textual references, but cannot prove that
+a step is semantically supported.
+
+## Features and stack
+
+- Typed complaint analysis: intent, category, product, severity, sentiment, and
+  review flag, including `other` for unfamiliar classes.
+- Pinned `all-MiniLM-L6-v2` embeddings and FAISS semantic retrieval with a
+  same-text TF-IDF evaluation baseline.
+- Cited RAG with abstention for weak or absent evidence and an explicit
+  agent-review warning in the UI.
+- Reviewed ticket, KB, and taxonomy updates with versioned database embeddings
+  and index refresh.
+- FastAPI, SQLAlchemy Core, Pydantic, Google Gen AI SDK, Streamlit, HTTPX,
+  FastEmbed/ONNX Runtime, FAISS, and scikit-learn for evaluation.
+
+The synthetic seed contains 12 issue families expanded to 120 tickets and 24
+KB articles. Retrieval is limited to 96 resolved, approved tickets and 22
+approved KB articles. These examples are suitable for a prototype demonstration,
+not a measure of real telecom ticket distribution.
 
 ## Run locally
 
-Use Python 3.12 or a compatible Python 3 version. From the repository root:
+Use Python 3.12 (locally verified with 3.12.14). From the repository root:
 
 ```text
 python -m venv .venv
@@ -38,7 +91,7 @@ environment activated, run:
 
 ```text
 python -m pip install -r frontend/requirements.txt
-python -m streamlit run frontend/app.py --server.address 127.0.0.1 --server.port 8501
+python -m streamlit run frontend/app.py
 ```
 
 Open `http://127.0.0.1:8501` for the agent page. It sends the complaint to
@@ -60,8 +113,8 @@ python -m evaluation.run_evaluation
 ```
 
 It seeds an isolated temporary database, compares FAISS retrieval with TF-IDF,
-checks label-blind fake analysis and scripted RAG contracts, and measures warm FastAPI route
-latency. Results are saved under `backend/evaluation/results/` as JSON plus
+checks label-blind fake analysis and scripted RAG contracts, and measures warm
+FastAPI route latency. Results are saved under `backend/evaluation/results/` as JSON plus
 `evaluation_summary.md`. No Gemini key is needed for this command. The current
 metrics rely mainly on small synthetic data and held-out paraphrases; fake-provider
 analysis scores are diagnostics, not live Gemini accuracy. An optional small
@@ -72,6 +125,17 @@ provider sample can be run separately with `python -m evaluation.run_evaluation
 available variables. The API reads environment variables and the ignored
 repository-root `.env` file. Set `GEMINI_API_KEY` there for analysis and
 resolution; never commit the real file.
+
+| Variable | Used by | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | Backend | Postgres URL when set; otherwise local SQLite |
+| `GEMINI_API_KEY` | Backend | Gemini credential; never place it in Git |
+| `GEMINI_MODEL` | Backend | Optional Gemini model override |
+| `ADMIN_API_KEY` | Backend | Optional admin-route key; absent disables updates |
+| `CORS_ORIGINS` | Backend | Explicit comma-separated browser origins |
+| `SEARCH_TICKET_TOP_K`, `SEARCH_KB_TOP_K` | Backend | Optional retrieval counts |
+| `APP_TITLE` | Backend | Optional API title |
+| `API_BASE_URL` | Frontend | Backend HTTP(S) origin |
 
 ## API routes
 
@@ -123,7 +187,9 @@ isolated in `backend/app/storage.py`.
 
 SQLite works without an external service. `DATABASE_URL` may override the
 default database URL for development; leave it unset for the simplest setup.
-Postgres driver and deployment configuration are planned for a later phase.
+The Postgres driver and URL normalization are available for hosted use. Supply
+`DATABASE_URL` to select it; Render's `postgresql://` URL and the older
+`postgres://` variant both use `psycopg`. The local SQLite fallback is unchanged.
 
 ## Semantic search
 
@@ -135,9 +201,10 @@ python -m app.build_indexes
 python -m app.search_demo
 ```
 
-The first index build downloads the pinned
-`sentence-transformers/all-MiniLM-L6-v2` model for local CPU inference. Its
-revision is set in `backend/app/config.py`. The model cache and generated
+The first index build downloads a pinned ONNX artifact of the
+`sentence-transformers/all-MiniLM-L6-v2` model for local CPU inference through
+FastEmbed. Its revision and runtime version are set in `backend/app/config.py`.
+The model cache and generated
 index files under `backend/data/` are ignored by Git. Normalized vectors are
 also stored in the database, so missing or stale index files can be rebuilt
 without embedding unchanged records again.
@@ -180,3 +247,75 @@ Run `python -m backend.app.evolving_demo` from the repository root to see an
 unknown issue become a reviewed category and searchable ticket, including a
 restart check. This demo uses a temporary database and a local embedding model;
 it does not call Gemini.
+
+## Example workflow
+
+Enter “My broadband drops every evening around 8 PM and I already restarted
+the router twice.” The backend analyzes the complaint, retrieves approved
+ticket and KB matches, asks Gemini for a cited draft, validates source IDs,
+and returns the draft to Streamlit. The page shows matches, citations,
+escalation advice, and backend processing time. An agent must verify each step
+against current KB guidance before using it with a customer.
+
+## Evaluation snapshot
+
+The saved Phase 9 run used 16 manually labeled held-out complaints. On the 12
+queries with ticket labels, FAISS ticket Recall@5 was 58.3% versus 41.7% for
+TF-IDF. On 16 KB-labeled queries, FAISS KB Recall@5 was 93.8% versus 62.5%
+for TF-IDF. Scripted RAG checks had 100% cited-ID validity and step citation
+coverage, while deliberately revealing that valid IDs can accompany
+conflicting or harmful advice. The saved warm fake-provider `/resolve` mean
+latency was about 21.6 ms; this excludes cold loading, network time, and
+Gemini. The final local suite has 117 backend and 21 frontend tests passing.
+See [the full evaluation summary](backend/evaluation/results/evaluation_summary.md)
+for denominators, MRR, failure cases, and interpretation.
+
+The complaint-analysis scores come from a label-blind **fake provider**, not
+Gemini. The full live Streamlit-to-Gemini pipeline was manually verified both
+locally and on Render. Neither synthetic metrics nor one live hosted example
+establish production accuracy.
+
+## Render deployment
+
+The prototype is deployed with a [FastAPI backend](https://support-ticket-assistant-api.onrender.com)
+and [Streamlit frontend](https://support-ticket-assistant-ui.onrender.com),
+Render Postgres, and Gemini. Follow [the Render runbook](docs/RENDER_DEPLOYMENT.md)
+for service roots, commands, environment variables, and hosted checks. Do not
+put credentials in this repository. The backend's public `/health` and `/ready`
+routes returned 200; readiness reported database, search index, embedding
+model, and Gemini configuration ready. A hosted `/resolve` call for the example
+complaint returned 200 with approved matches and citations in 3,048 ms. The
+same complaint completed through the hosted UI, showing analysis, five ticket
+matches, five KB articles, cited steps, escalation, sources used, and the agent
+review warning; backend processing time in that run was 3,192 ms. A separate
+hosted out-of-domain `/resolve` request returned `insufficient_evidence=true`
+with no ticket matches. These are individual observations, not a latency
+distribution or quality benchmark. Deployed browser preflight requests currently
+reject the Streamlit origin; Streamlit's server-side API calls work without
+browser CORS permission.
+
+## Limitations, security, and production scale
+
+- Citation IDs prove that the named evidence was retrieved and approved; they
+  do not prove semantic entailment, KB precedence, or safety. A valid ID can
+  still accompany conflicting or harmful advice. The UI labels the result as
+  a draft requiring agent review. Stronger grounding checks and a human
+  feedback loop are future work.
+- The synthetic corpus and sparse relevance labels limit generalization.
+  Similarity scores are ranking signals, not calibrated confidence values.
+- The single backend worker protects in-memory index updates with a lock but
+  serializes Gemini calls. Hosted readiness and retrieval passed, but Linux
+  peak memory, first model download time, restart persistence, and cold-start
+  latency have not been separately measured.
+- The admin API is disabled without `ADMIN_API_KEY`. A shared key is a
+  prototype guard, not identity-based authentication, authorization, or a
+  durable audit trail. API logs omit raw complaints; provider errors are
+  sanitized. `.env`, local databases, model cache, and FAISS files are ignored.
+
+At greater scale, use managed Postgres with backups, background or queue-based
+ingestion, a coordinated vector index or vector database, index/model version
+governance, horizontal scaling, rate limits, retry and timeout policies,
+tracing and observability, model monitoring, privacy and PII controls, data
+retention rules, identity-based RBAC, audit logs, and human review of semantic
+support. These are deployment and governance requirements rather than claims
+about the present prototype.

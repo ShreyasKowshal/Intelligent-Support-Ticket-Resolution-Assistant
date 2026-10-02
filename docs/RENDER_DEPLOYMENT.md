@@ -30,8 +30,9 @@ initial seed and later updates live in Postgres. The `test -n` guard makes the
 hosted service fail to start if `DATABASE_URL` is absent, rather than silently
 using a temporary SQLite database. Local commands still default to SQLite.
 The SQLAlchemy schema and queries use portable constructs, and the automated
-suite checks Postgres URL handling and dialect compilation. A live Postgres
-transaction and restart check remain part of hosted validation.
+suite checks Postgres URL handling and dialect compilation. Hosted readiness
+confirmed a database connection and the live resolution retrieved seeded
+evidence. A post-restart persistence check has not been separately recorded.
 
 ## Environment variables
 
@@ -40,7 +41,7 @@ transaction and restart check remain part of hosted validation.
 | Backend | `DATABASE_URL` | Render Postgres **internal** connection URL |
 | Backend | `GEMINI_API_KEY` | Secret entered in the Render dashboard only |
 | Backend | `GEMINI_MODEL` | Optional model override; otherwise the configured application default |
-| Backend | `CORS_ORIGINS` | Exact frontend HTTPS origin, with no trailing slash |
+| Backend | `CORS_ORIGINS` | Optional explicit browser origins; Streamlit's server-side client does not require it |
 | Backend | `ADMIN_API_KEY` | Optional secret; leave unset to disable admin updates |
 | Backend | `PYTHON_VERSION` | `3.12.14` |
 | Frontend | `API_BASE_URL` | Public backend HTTPS origin, with no trailing slash |
@@ -100,6 +101,24 @@ The live example is: “My broadband drops every evening around 8 PM and I
 already restarted the router twice.” Keep the result as a demonstration of a
 single hosted run, not a measured production quality score.
 
+## Recorded hosted result
+
+The [backend](https://support-ticket-assistant-api.onrender.com) and
+[frontend](https://support-ticket-assistant-ui.onrender.com) reached Live on
+Render Free after switching the encoder to FastEmbed/ONNX. On 2026-10-02,
+`/health` and `/ready` returned 200. Readiness reported database, search index,
+embedding model, and Gemini configuration ready. A live backend `/resolve`
+returned 200 with analysis, five ticket matches, five KB matches, cited steps,
+and escalation in 3,048 ms. The user then completed the same complaint in the
+hosted Streamlit UI: analysis, five ticket and five KB matches, a cited draft,
+escalation, source IDs, and the agent-review warning appeared. Backend processing
+time in that UI run was 3,192 ms. A separate out-of-domain backend `/resolve`
+returned 200 with `insufficient_evidence=true` and no ticket matches. These are
+single-run observations. The post-restart persistence check, Linux memory peak,
+first model download time, out-of-domain Streamlit rendering, and hosted
+provider-error UI state were not separately recorded; local automated tests
+cover the two UI states.
+
 ## Security and operational limits
 
 Admin routes return a configuration error when `ADMIN_API_KEY` is absent. A
@@ -111,3 +130,9 @@ sanitized provider/storage errors. Use Render environment settings for
 credentials and avoid external database access unless it is needed for
 administration. Confirm the selected Postgres plan's retention and backup
 terms before treating it as durable beyond the demo window.
+
+The final public preflight check rejected both the Streamlit origin and an
+unrelated origin. The hosted UI remains functional because Streamlit sends
+HTTP requests from its server process. Configure `CORS_ORIGINS` only if a
+browser client later needs direct API access; then allow only the required
+origin.

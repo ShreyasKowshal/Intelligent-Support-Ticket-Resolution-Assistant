@@ -1,8 +1,8 @@
 # Project handoff
 
-Updated after Phase 9 validation on 2026-10-02. The `develop` checkout, code,
-tests, and `backend/evaluation/results/` are the source of truth. This document
-records implemented behavior separately from the Phase 10 deployment target.
+Updated after Phase 10 hosted validation on 2026-10-02. The `develop` checkout,
+code, tests, and `backend/evaluation/results/` are the source of truth. See the
+README for setup and the Render runbook for deployed service configuration.
 
 ## Original problem, goal, and schedule
 
@@ -25,26 +25,28 @@ The working target is a feature-complete prototype by **Monday, October 5,
 Streamlit agent page (frontend/app.py)
     -> HTTP POST /resolve on FastAPI
         -> complaint analysis (Gemini via LLMClient)
-        -> semantic search (pinned sentence-transformer + separate FAISS indexes)
+        -> semantic search (pinned MiniLM via FastEmbed ONNX + separate FAISS indexes)
              -> approved/resolved tickets and approved KB from Repository
         -> cited RAG draft (Gemini via LLMClient) + citation validation
 
 FastAPI also exposes /health, /ready, /analyze, /search, and guarded /admin
 ticket, KB, and taxonomy updates. The CLI uses the same ingestion service.
 
-Repository -> SQLite locally. Render/Postgres remains a Phase 10 target.
+Repository -> SQLite locally / Render Postgres hosted.
 ```
 
 Python 3.12 is the documented local target. FastAPI/Uvicorn, SQLAlchemy Core,
-Pydantic, sentence-transformers, FAISS, Google Gen AI SDK, and Streamlit are
+Pydantic, FastEmbed/ONNX Runtime, FAISS, Google Gen AI SDK, and Streamlit are
 the main libraries. HTTPX powers the frontend client; scikit-learn powers the
 Phase 9 TF-IDF baseline and metric calculations. The frontend calls FastAPI
 only. It has no direct Gemini or admin workflow.
 
-FAISS files and model cache are disposable local artifacts. The database is
+FAISS files and model cache are disposable filesystem artifacts. The database is
 the durable source for tickets, KB, taxonomy, and versioned embeddings. Local
 SQLite, FAISS files, model cache, and `.env` are ignored by Git. The service
-rebuilds missing/stale indexes using stored embeddings where possible.
+rebuilds missing/stale indexes using stored embeddings where possible. The ONNX
+embedding runtime has a distinct model/version identifier and index manifest;
+old PyTorch vectors cannot be reused with it.
 
 ## Git and phase workflow
 
@@ -53,6 +55,8 @@ IMPLEMENT -> VERIFY -> REVIEW -> FIX BLOCKER/HIGH -> REGRESSION TEST -> COMMIT
 -> PUSH to `origin/develop` -> REPORT. Use one focused commit per phase, never
 force-push or rewrite history, and merge to `main` only on explicit request.
 Never commit `.env`, credentials, or secrets.
+Phase 10 used deployment-code commit/push before deployment and a separate
+final-documentation commit/push after hosted validation.
 
 ## Completed phases
 
@@ -138,13 +142,13 @@ review and, for production, stronger evidence verification.
 
 Seven warm fake-provider in-process requests per route were measured. The
 latest saved run's mean latency is in `backend/evaluation/results/` (roughly
-1 ms `/analyze`, 20 ms `/search`, and 21.572 ms `/resolve` on this machine). Times
+1 ms `/analyze`, 20 ms `/search`, and 21.6 ms `/resolve` on this machine). Times
 exclude cold model/index loading, HTTP transport, and live Gemini. `/health`
 and `/ready` returned 200 with the temporary DB, search, model, and fake
 provider ready. `/ready` does not probe Gemini's network reachability.
 Quality JSON files were byte-identical across real-model reruns; latency is
-expected to vary. The current regression suite is **110 backend tests + 21
-frontend tests = 131 passed**, with one Starlette/TestClient HTTPX deprecation
+expected to vary. The final local regression suite is **117 backend tests + 21
+frontend tests = 138 passed**, with one Starlette/TestClient HTTPX deprecation
 warning. API HTTP smoke passed `/health`, `/ready`, `/analyze`, `/search`, and
 `/resolve` with a fake provider.
 
@@ -175,22 +179,47 @@ failures appear environment-specific.
 - Synthetic data and a small, sparse relevance fixture limit external
   validity. Similarity scores rank matches; they are not probabilities.
   RAG citations check IDs, not whether each step is semantically entailed.
-- The pinned encoder's first load/download and FAISS rebuild may be slow or
-  memory-heavy. Render memory/cold-start behavior is untested. SQLite is local;
-  Postgres driver, migrations/compatibility checks, service concurrency, and
-  persistent hosted storage still need Phase 10 work.
+- The pinned ONNX encoder's first download and FAISS rebuild may be slow.
+  Hosted readiness and retrieval passed, but Linux peak memory, first-download
+  time, and restart persistence were not separately measured. SQLite remains
+  the local default; Postgres is selected through `DATABASE_URL` on Render.
 - `.env` is ignored and untracked. No key or admin secret belongs in code,
   result files, logs, or Git history.
 
-## Remaining Phase 10
+## Phase 10 deployment and validation
 
-Finish the presentation-ready architecture diagram, setup and design
-documentation, production-scale considerations, and Render backend/frontend
-plus Postgres deployment. Validate database portability, model/index rebuilds,
-health, memory/cold-start behavior, admin guard configuration, and end-to-end
-frontend -> API -> Gemini on a reachable host. Perform a small human review of
-resolution relevance, citation support, KB conflicts, and escalation. Do not
-claim synthetic or scripted metrics as production model quality.
+Deployment code was pushed to `develop` as `1b3ca33` (`Prepare Render deployment`).
+The first Render Free backend attempt exceeded 512 MiB with the original
+PyTorch runtime. Commit `1d3cb60` (`Reduce embedding memory`) replaced that
+runtime with pinned FastEmbed/ONNX MiniLM while retaining 384-dimensional
+normalized vectors, separate FAISS `IndexFlatIP` indexes, approved-evidence
+rules, and a version barrier against old embeddings. Local Windows peak process
+memory through readiness, rebuild, search, and fake-provider resolution was
+282.2 MiB, versus 535.7 MiB for the earlier PyTorch path. This does not measure
+the hosted Linux memory peak. Render's Free backend then reached Live.
+
+The deployed services are [FastAPI](https://support-ticket-assistant-api.onrender.com)
+and [Streamlit](https://support-ticket-assistant-ui.onrender.com), backed by
+Render Postgres in Singapore with external database access disabled. Public
+`/health` and `/ready` returned 200 on final check; readiness reported the
+database, search index, embedding model, and Gemini configuration ready. A
+hosted live `/resolve` for the broadband example returned 200 with analysis,
+five approved ticket matches, five KB articles, cited steps, and escalation;
+its backend latency was 3,048 ms. The user confirmed the same complaint through
+the hosted Streamlit UI, including citations, source IDs, backend latency
+(3,192 ms), and the agent-review warning. A separate hosted out-of-domain
+`/resolve` request returned `insufficient_evidence=true` and zero ticket
+matches. This validates individual live paths, not hosted accuracy or load.
+
+After hosted validation, 117 backend and 21 frontend tests passed. The final
+deterministic run reproduced the saved analysis, retrieval, and RAG JSON exactly.
+Warm latency varies; the final run's fake-provider `/resolve` mean was 16.0 ms
+on the local machine. Hosted first-download/cold-start time, restart persistence,
+Linux peak memory, out-of-domain Streamlit rendering, and provider-error UI
+behavior were not separately exercised. Local tests cover the latter two states.
+Human review of semantic support, KB conflicts, safety, and escalation remains
+required before any draft is used with a customer. Do not claim synthetic or
+scripted metrics as production model quality.
 
 ## Run locally
 
@@ -217,11 +246,5 @@ ignored environment-specific `live_sample.json`.
 
 Running `streamlit run frontend/app.py` can be sensitive to the current
 working directory and Python import path. With the virtual environment
-activated, the verified simple command from the repository root is
-`python -m streamlit run frontend/app.py`. The longer explicit virtual-
-environment command was also verified in Windows PowerShell:
-
-```powershell
-Set-Location C:\Users\ASUS\Intelligent-Support-Ticket-Resolution-Assistant
-& .\.venv\Scripts\python.exe -m streamlit run .\frontend\app.py --server.address 127.0.0.1 --server.port 8501
-```
+activated, the verified command from the repository root is
+`python -m streamlit run frontend/app.py`.
