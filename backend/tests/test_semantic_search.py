@@ -168,7 +168,7 @@ def test_revoked_approval_invalidates_saved_index(search_setup):
     assert "T-001" not in {item.source_id for item in search.search("broadband", ticket_k=100).tickets}
     assert "KB-001" not in {item.source_id for item in search.search("broadband", kb_k=100).kb_articles}
     reloaded = SemanticSearch(repository, encoder=encoder, index_dir=search.index_dir)
-    assert reloaded.load_or_build() == "rebuilt"
+    assert reloaded.load_or_build() == "loaded"  # The active search already refreshed the saved files.
     assert reloaded.ticket_index.ntotal == 95
     assert reloaded.kb_index.ntotal == 21
     assert "T-001" not in reloaded.ticket_ids

@@ -41,9 +41,7 @@ def main() -> None:
             load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
             client = GeminiClient()
 
-        analysis = ComplaintAnalyzer(
-            client, repository.list_taxonomy("product"), repository.list_taxonomy("category")
-        ).analyze(args.complaint)
+        analysis = ComplaintAnalyzer.from_repository(client, repository).analyze(args.complaint)
         print("Complaint analysis:")
         print(analysis.model_dump_json(indent=2))
 

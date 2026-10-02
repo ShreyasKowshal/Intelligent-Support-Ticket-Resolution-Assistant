@@ -13,6 +13,7 @@ from sqlalchemy import (
     Table,
     Text,
     create_engine,
+    delete,
     insert,
     select,
     update,
@@ -134,6 +135,30 @@ class Repository:
             except IntegrityError as exc:
                 raise DuplicateRecordError(f"ticket already exists: {ticket.ticket_id}") from exc
 
+    def upsert_ticket(self, ticket: SupportTicket) -> str:
+        """Insert or replace a stable ID in one portable transaction."""
+        ticket = SupportTicket.model_validate(ticket.model_dump())
+        with self.engine.begin() as connection:
+            self._validate_ticket_taxonomy(connection, ticket)
+            row = connection.execute(
+                select(tickets).where(tickets.c.ticket_id == ticket.ticket_id)
+            ).mappings().first()
+            if row is None:
+                connection.execute(insert(tickets).values(**ticket.model_dump(mode="json")))
+                return "inserted"
+            previous = SupportTicket.model_validate(row)
+            if ticket.created_at != previous.created_at:
+                raise ValueError("created_at cannot change for an existing ticket")
+            if ticket == previous:
+                return "unchanged"
+            if ticket.updated_at <= previous.updated_at:
+                raise ValueError("updated_at must advance when a ticket changes")
+            connection.execute(
+                update(tickets).where(tickets.c.ticket_id == ticket.ticket_id)
+                .values(**ticket.model_dump(mode="json"))
+            )
+            return "updated"
+
     def add_kb_article(self, article: KnowledgeBaseArticle) -> None:
         with self.engine.begin() as connection:
             self._validate_category(connection, article.category)
@@ -141,6 +166,35 @@ class Repository:
                 connection.execute(insert(kb_articles).values(**article.model_dump(mode="json")))
             except IntegrityError as exc:
                 raise DuplicateRecordError(f"KB article already exists: {article.kb_id}") from exc
+
+    def upsert_kb_article(self, article: KnowledgeBaseArticle) -> str:
+        """Preserve a KB ID and require a new version when guidance changes."""
+        article = KnowledgeBaseArticle.model_validate(article.model_dump())
+        with self.engine.begin() as connection:
+            self._validate_category(connection, article.category)
+            row = connection.execute(
+                select(kb_articles).where(kb_articles.c.kb_id == article.kb_id)
+            ).mappings().first()
+            if row is None:
+                connection.execute(insert(kb_articles).values(**article.model_dump(mode="json")))
+                return "inserted"
+            previous = KnowledgeBaseArticle.model_validate(row)
+            if article.created_at != previous.created_at:
+                raise ValueError("created_at cannot change for an existing KB article")
+            if article == previous:
+                return "unchanged"
+            if article.updated_at <= previous.updated_at:
+                raise ValueError("updated_at must advance when a KB article changes")
+            text_changed = (
+                article.title, article.content, article.category
+            ) != (previous.title, previous.content, previous.category)
+            if article.version < previous.version or (text_changed and article.version <= previous.version):
+                raise ValueError("KB version must advance when content changes and never decrease")
+            connection.execute(
+                update(kb_articles).where(kb_articles.c.kb_id == article.kb_id)
+                .values(**article.model_dump(mode="json"))
+            )
+            return "updated"
 
     def get_ticket(self, ticket_id: str, evidence_only: bool = False) -> SupportTicket | None:
         statement = select(tickets).where(tickets.c.ticket_id == ticket_id)
@@ -198,6 +252,13 @@ class Repository:
         values = item.model_dump()
         values["updated_at"] = item.updated_at.isoformat()
         with self.engine.begin() as connection:
+            # Only the current text version is useful for this source/model.
+            connection.execute(delete(embeddings).where(
+                embeddings.c.source_id == item.source_id,
+                embeddings.c.source_type == item.source_type,
+                embeddings.c.model_name == item.model_name,
+                embeddings.c.model_version != item.model_version,
+            ))
             exists = connection.execute(select(embeddings.c.source_id).where(*key)).first()
             if exists:
                 connection.execute(update(embeddings).where(*key).values(**values))

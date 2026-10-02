@@ -1,7 +1,7 @@
 """Validate and normalize a structured telecom complaint analysis."""
 
 from enum import Enum
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, ValidationError, field_validator
 
@@ -77,14 +77,31 @@ def analysis_instruction(products: set[str], categories: set[str]) -> str:
 
 
 class ComplaintAnalyzer:
-    def __init__(self, client: LLMClient, products: list[str], categories: list[str]) -> None:
+    def __init__(
+        self, client: LLMClient, products: list[str], categories: list[str],
+        taxonomy_loader: Callable[[], tuple[list[str], list[str]]] | None = None,
+    ) -> None:
         self.client = client
         self.products = set(products)
         self.categories = set(categories)
+        self.taxonomy_loader = taxonomy_loader
         if not self.products or not self.categories:
             raise ValueError("Product and category taxonomy must be populated")
 
+    @classmethod
+    def from_repository(cls, client: LLMClient, repository: Any) -> "ComplaintAnalyzer":
+        def load() -> tuple[list[str], list[str]]:
+            return repository.list_taxonomy("product"), repository.list_taxonomy("category")
+
+        products, categories = load()
+        return cls(client, products, categories, taxonomy_loader=load)
+
     def analyze(self, complaint: str) -> ComplaintAnalysis:
+        if self.taxonomy_loader is not None:
+            products, categories = self.taxonomy_loader()
+            self.products, self.categories = set(products), set(categories)
+            if not self.products or not self.categories:
+                raise ValueError("Product and category taxonomy must be populated")
         if not isinstance(complaint, str) or not complaint.strip():
             raise ValueError("complaint must contain text")
         complaint = complaint.strip()

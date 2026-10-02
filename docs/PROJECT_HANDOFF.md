@@ -1,6 +1,6 @@
 # Project handoff
 
-Verified against the `develop` checkout and Git history on 2026-10-01. This document distinguishes implemented behavior from the agreed target architecture. Start with the current code and tests when continuing the project.
+Verified against the `develop` checkout and Git history on 2026-10-02, after Phase 6 implementation. This document distinguishes implemented behavior from the agreed target architecture. Start with the current code and tests when continuing the project.
 
 ## Problem, goal, and deadline
 
@@ -19,12 +19,13 @@ Target: Streamlit agent UI -> FastAPI service -> complaint analysis (LLM)
                                                              (SQLite locally)
 
 Current: FastAPI /health; SQLite repository + synthetic seed/profile;
-         standalone sentence-transformers/FAISS build and search commands.
+         sentence-transformers/FAISS semantic search; Gemini complaint analysis;
+         cited RAG; controlled ticket, KB, and taxonomy ingestion.
 ```
 
-FAISS files are rebuildable search artifacts; durable ticket, KB, taxonomy, and embedding records belong in the database. The current implementation uses SQLite locally. The agreed Render design uses Postgres as the source of truth and rebuilds missing/stale FAISS files from durable embeddings. Postgres connectivity, LLM calls, RAG, frontend behavior, and deployment are **not implemented yet**.
+FAISS files are rebuildable search artifacts; durable ticket, KB, taxonomy, and embedding records belong in the database. The current implementation uses SQLite locally. The agreed Render design uses Postgres as the source of truth and rebuilds missing/stale FAISS files from durable embeddings. Postgres connectivity, frontend behavior, and deployment are **not implemented yet**.
 
-Current direct Python dependencies are FastAPI, Uvicorn, HTTPX, pytest, SQLAlchemy, pandas, sentence-transformers, and faiss-cpu (`backend/requirements.txt`). Pydantic and NumPy are used through installed dependencies. The frontend dependency file is only a placeholder. Python 3.12 is the documented local target; scikit-learn is planned for the later evaluation baseline, not a direct dependency yet.
+Current direct Python dependencies are FastAPI, Uvicorn, HTTPX, pytest, SQLAlchemy, pandas, sentence-transformers, faiss-cpu, google-genai, and python-dotenv (`backend/requirements.txt`). Pydantic and NumPy are used through installed dependencies. The frontend dependency file is only a placeholder. Python 3.12 is the documented local target; scikit-learn is planned for the later evaluation baseline, not a direct dependency yet.
 
 ## Git and phase workflow
 
@@ -64,21 +65,30 @@ Remaining MEDIUM/LOW limitations: related but wrong KB categories can rank above
 - Do not embed historical ticket resolutions into retrieval text; use resolutions only as approved evidence for generation. Preserve stable seed IDs, idempotent seeding, the held-out queries, and the `develop` branch workflow.
 - Do not add Docker, Kafka, Kubernetes, elaborate CI, or other infrastructure during core implementation. Do not change working components merely to redesign them.
 
+### Phase 4 — complaint analysis
+
+`backend/app/analysis.py` validates the typed intent/category/product/severity/sentiment/confidence/review/rationale result. Unknown categories become `other` with `needs_review=true` and an optional suggestion. `backend/app/gemini_client.py` isolates the Google Gen AI SDK behind `LLMClient`; tests use `FakeLLMClient`. The configured model defaults to `gemini-3.5-flash-lite` and reads `GEMINI_API_KEY`/`GEMINI_MODEL` from the environment. The real local `.env` is ignored and untracked. Commit `6df182b` — `Add complaint analysis`.
+
+### Phase 5 — cited RAG
+
+`backend/app/rag.py` accepts an original complaint, structured analysis, and explicitly supplied retrieved ticket/KB matches. It bounds evidence, requires citations for each step, rejects IDs absent from retrieved context, and returns an insufficient-evidence result when no strong evidence is available. Approved KB guidance takes precedence over historical ticket behavior in the prompt. `backend/app/resolve_demo.py` demonstrates the analysis → retrieval → cited-resolution flow. Commit `7a62cb8` — `Add RAG resolution`; the checkpoint citation-validation fix is `ec18a92` — `Validate textual citations`.
+
+### Phase 6 — evolving data and classes
+
+`backend/app/ingestion.py` provides controlled ticket/KB upserts and reviewed taxonomy additions; `backend/app/ingest.py` is the local admin CLI. Existing IDs and `created_at` remain stable; changed records require a later `updated_at`, and changed KB guidance requires a higher version. Only resolved+approved tickets and approved KB articles are eligible. The service refreshes FAISS after searchable text or eligibility changes. `SemanticSearch` also detects external database changes before a search and reloads/rebuilds stale indexes. Unchanged vectors are reused from the durable embeddings table; superseded vector versions are removed. `backend/app/taxonomy.py` maps analysis severity/sentiment labels to canonical stored values (`ANGRY` → `negative`). Repository-backed complaint analysis reloads taxonomy per call, so a reviewed new category can be used without model retraining. `python -m backend.app.evolving_demo` demonstrates a new optical-signal class and ticket becoming searchable and surviving restart. The full suite currently passes **88 tests** with one existing Starlette/TestClient deprecation warning. The Phase 6 commit hash is the latest `develop` commit after this handoff update is committed.
+
 ## Current state and next work
 
-At handoff creation, the checkout was clean at **`develop` = `origin/develop` = `1049042`**, with `main`/`origin/main` at `a4d8687`; `origin` points to `https://github.com/ShreyasKowshal/Intelligent-Support-Ticket-Resolution-Assistant.git`. This document will be a separate documentation commit, so check `git status -sb` and `git log -1 --oneline` for the live state afterward. There is no search HTTP endpoint yet: `/health` is the only FastAPI route. There is no LLM integration, RAG/citation generation, Streamlit app, Postgres deployment, or Render service yet. Local SQLite, model cache, and FAISS files are ignored and must not be relied upon as deployable state. No real API keys are in the repository.
+Check `git status -sb` and `git log -1 --oneline` for the live state. `/health` is still the only FastAPI route; analysis, search, RAG, and ingestion run as local service functions/CLIs. There is no Streamlit app, Postgres driver/deployment, or Render service yet. Local SQLite, model cache, and FAISS files are ignored and must not be relied upon as deployable state. No real API keys are in the repository.
 
 Remaining implementation phases, in order:
 
-1. **Phase 4 — Complaint analysis:** Add an LLM API adapter and validated structured output for category/intent, product, severity, and sentiment. Map to taxonomy; provide an `other`/needs-review path for unseen classes, a clear severity rubric, robust errors/fallback, mocked tests, and a realistic example. Do **not** start RAG or the frontend in this phase.
-2. **Phase 5 — Grounded RAG:** Combine eligible ticket resolutions and KB content into a step-by-step draft with verifiable source-ID citations and guardrails for insufficient evidence.
-3. **Phase 6 — Evolving data and classes:** Add controlled ingestion/update and approval/taxonomy handling, embedding/index refresh, and simple Postgres-compatible durable storage for Render while retaining local SQLite.
-4. **Phase 7 — FastAPI service:** Expose analysis, retrieval, and resolution as validated API operations with clear health/error behavior.
-5. **Phase 8 — Streamlit demo:** Agent complaint entry, analysis, ranked sources, cited resolution, and usable error states.
-6. **Phase 9 — Evaluation:** Use held-out data for retrieval metrics and a TF-IDF baseline; evaluate analysis, citation grounding, latency, and system health.
-7. **Phase 10 — Documentation and Render deployment:** Architecture diagram, production-scale considerations, setup/deployment guidance, Render backend/frontend services, final end-to-end checks, and demo readiness.
+1. **Phase 7 — FastAPI service:** Expose analysis, retrieval, and resolution as validated API operations with clear health/error behavior.
+2. **Phase 8 — Streamlit demo:** Agent complaint entry, analysis, ranked sources, cited resolution, and usable error states.
+3. **Phase 9 — Evaluation:** Use held-out data for retrieval metrics and a TF-IDF baseline; evaluate analysis, citation grounding, latency, and system health.
+4. **Phase 10 — Documentation and Render deployment:** Architecture diagram, production-scale considerations, setup/deployment guidance, Render backend/frontend services, final end-to-end checks, and demo readiness.
 
-The LLM provider/model and API key are not configured yet. Phase 4 should choose and document the provider and keep secrets in environment variables. Current `.env.example` names are `APP_TITLE`, `DATABASE_URL`, `SEARCH_TICKET_TOP_K`, and `SEARCH_KB_TOP_K`. Planned names such as `LLM_API_KEY`, `LLM_MODEL`, and a frontend backend URL must be finalized when those integrations are implemented; they are **not current settings**. Render target: separate FastAPI and Streamlit services, plus Postgres. Treat service-local FAISS/model files as disposable and rebuild indexes from database embeddings as needed. Confirm Render plan/resource limits and first-run model download behavior during deployment.
+The Gemini provider uses `GEMINI_API_KEY` and `GEMINI_MODEL`; `.env.example` contains empty placeholders and the real local `.env` remains ignored. Render target: separate FastAPI and Streamlit services, plus Postgres. The storage interface uses SQLAlchemy Core and keeps SQLite as the local default; a Postgres driver and deployed database are still pending. Treat service-local FAISS/model files as disposable and rebuild indexes from database embeddings as needed. Confirm Render plan/resource limits and first-run model download behavior during deployment. The local taxonomy CLI requires a reviewer identifier but does not implement authentication or a durable approval audit log; those remain production hardening tasks.
 
 ## Run the project now
 
@@ -94,8 +104,11 @@ python -m evaluation.profile
 python -m app.build_indexes
 python -m app.search_demo
 python -m app.search_demo --query "I cannot surf the web over cellular, but voice chat works." --tickets 3 --kb 5
+python -m app.analyze_demo "My broadband drops every evening" --fake
+python -m app.resolve_demo "My broadband drops every evening" --fake
+python -m app.evolving_demo
 python -m pytest -q
 python -m uvicorn app.main:app --reload
 ```
 
-Check `http://127.0.0.1:8000/health` for `{"status":"ok"}`. Run commands after `cd backend` because imports use the `app` package. On 2026-10-01, the current suite reported **26 passed, 1 warning**; the profile reported 120 tickets/24 KB articles, and the semantic demo loaded the saved indexes successfully. The first index build may download the pinned model. The Windows PowerShell activation step may require local execution-policy configuration; invoking `.venv\Scripts\python.exe` directly is also possible.
+Check `http://127.0.0.1:8000/health` for `{"status":"ok"}`. Run these commands after `cd backend` because imports use the `app` package. On 2026-10-02, the suite reported **88 passed, 1 warning**. The evolving-data demo changed an unknown optical-signal complaint from `other` to a reviewed category; its new ticket ranked first (similarity 0.927) and remained first after restart. The first index build may download the pinned model. The Windows PowerShell activation step may require local execution-policy configuration; invoking `.venv\Scripts\python.exe` directly is also possible.

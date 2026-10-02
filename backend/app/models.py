@@ -1,9 +1,12 @@
 """Validated records used by the storage layer and seed data."""
 
 from datetime import datetime
+import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
+
+from app.taxonomy import normalize_sentiment, normalize_severity
 
 Severity = Literal["low", "medium", "high", "critical"]
 Sentiment = Literal["positive", "neutral", "negative", "frustrated"]
@@ -17,10 +20,10 @@ class Record(BaseModel):
 
 
 class SupportTicket(Record):
-    ticket_id: str = Field(pattern=r"^T-\d{3,}$")
+    ticket_id: str = Field(max_length=32, pattern=r"^T-\d{3,}$")
     complaint: str = Field(min_length=1)
-    product: str = Field(min_length=1)
-    category: str = Field(min_length=1)
+    product: str = Field(min_length=1, max_length=80)
+    category: str = Field(min_length=1, max_length=80)
     severity: Severity
     sentiment: Sentiment
     resolution: str
@@ -28,6 +31,16 @@ class SupportTicket(Record):
     approved: StrictBool
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("severity", mode="before")
+    @classmethod
+    def canonical_severity(cls, value: str) -> str:
+        return normalize_severity(value)
+
+    @field_validator("sentiment", mode="before")
+    @classmethod
+    def canonical_sentiment(cls, value: str) -> str:
+        return normalize_sentiment(value)
 
     @field_validator("complaint", "product", "category", "resolution")
     @classmethod
@@ -47,10 +60,10 @@ class SupportTicket(Record):
 
 
 class KnowledgeBaseArticle(Record):
-    kb_id: str = Field(pattern=r"^KB-\d{3,}$")
-    title: str = Field(min_length=1)
+    kb_id: str = Field(max_length=32, pattern=r"^KB-\d{3,}$")
+    title: str = Field(min_length=1, max_length=200)
     content: str = Field(min_length=1)
-    category: str = Field(min_length=1)
+    category: str = Field(min_length=1, max_length=80)
     approved: StrictBool
     version: int = Field(ge=1)
     created_at: datetime
@@ -71,7 +84,7 @@ class KnowledgeBaseArticle(Record):
 
 class TaxonomyValue(Record):
     kind: TaxonomyKind
-    value: str = Field(min_length=1)
+    value: str = Field(min_length=1, max_length=80)
 
     @field_validator("value")
     @classmethod
@@ -80,6 +93,16 @@ class TaxonomyValue(Record):
         if not value:
             raise ValueError("taxonomy value cannot be blank")
         return value
+
+    @model_validator(mode="after")
+    def validate_value(self) -> "TaxonomyValue":
+        if self.kind == "severity":
+            self.value = normalize_severity(self.value)
+        elif self.kind == "sentiment":
+            self.value = normalize_sentiment(self.value)
+        elif not re.fullmatch(r"[a-z][a-z0-9_]{0,79}", self.value):
+            raise ValueError("product and category values must be lowercase identifiers")
+        return self
 
 
 class EmbeddingMetadata(Record):

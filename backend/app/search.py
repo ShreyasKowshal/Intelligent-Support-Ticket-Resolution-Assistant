@@ -5,6 +5,7 @@ import json
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
+from uuid import uuid4
 
 import faiss
 import numpy as np
@@ -132,6 +133,7 @@ class SemanticSearch:
         self.kb_index: faiss.Index | None = None
         self.ticket_ids: list[str] = []
         self.kb_ids: list[str] = []
+        self._signature: str | None = None
 
     def build_indexes(self) -> None:
         """Reuse matching durable vectors, encode missing ones, and save fresh indexes."""
@@ -159,17 +161,28 @@ class SemanticSearch:
         if len(kb_records):
             self.kb_index.add(kb_vectors)
         self._set_mapping(ticket_records, kb_records)
-        self._save_indexes(self._source_signature(ticket_records, kb_records))
+        signature = self._source_signature(ticket_records, kb_records)
+        self._save_indexes(signature)
+        self._signature = signature
 
     def refresh_indexes(self) -> None:
-        """Phase 6 can call this after approved records change."""
+        """Rebuild from durable eligible records, reusing unchanged vectors."""
         self.build_indexes()
+
+    def invalidate(self) -> None:
+        """Prevent serving old in-memory vectors after a durable write."""
+        self.ticket_index = None
+        self.kb_index = None
+        self.ticket_ids = []
+        self.kb_ids = []
+        self._signature = None
 
     def load_or_build(self) -> str:
         """Load verified files, or rebuild from the repository when absent or stale."""
         ticket_records = self.repository.list_tickets(evidence_only=True)
         kb_records = self.repository.list_kb_articles(evidence_only=True)
         if self._try_load(ticket_records, kb_records):
+            self._signature = self._source_signature(ticket_records, kb_records)
             return "loaded"
         self.build_indexes()
         return "rebuilt"
@@ -187,6 +200,12 @@ class SemanticSearch:
                 raise ValueError("Top-K values must be positive integers")
         if self.ticket_index is None or self.kb_index is None:
             raise RuntimeError("search indexes are not ready; call load_or_build first")
+        current_signature = self._source_signature(
+            self.repository.list_tickets(evidence_only=True),
+            self.repository.list_kb_articles(evidence_only=True),
+        )
+        if current_signature != self._signature:
+            self.load_or_build()
         query_vector = normalize_vectors(self.encoder.encode([complaint.strip()]))
         ticket_scores, ticket_positions = self.ticket_index.search(query_vector, ticket_k)
         kb_scores, kb_positions = self.kb_index.search(query_vector, kb_k)
@@ -288,8 +307,9 @@ class SemanticSearch:
         self.index_dir.mkdir(parents=True, exist_ok=True)
         ticket_path = self.index_dir / "tickets.faiss"
         kb_path = self.index_dir / "kb.faiss"
-        ticket_temp = self.index_dir / "tickets.faiss.tmp"
-        kb_temp = self.index_dir / "kb.faiss.tmp"
+        token = uuid4().hex
+        ticket_temp = self.index_dir / f"tickets.{token}.tmp"
+        kb_temp = self.index_dir / f"kb.{token}.tmp"
         faiss.write_index(self.ticket_index, str(ticket_temp))
         faiss.write_index(self.kb_index, str(kb_temp))
         ticket_temp.replace(ticket_path)
@@ -306,7 +326,7 @@ class SemanticSearch:
             "ticket_sha256": self._file_hash(ticket_path),
             "kb_sha256": self._file_hash(kb_path),
         }
-        manifest_temp = self.index_dir / "manifest.json.tmp"
+        manifest_temp = self.index_dir / f"manifest.{token}.tmp"
         manifest_temp.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
         manifest_temp.replace(self.index_dir / "manifest.json")
 

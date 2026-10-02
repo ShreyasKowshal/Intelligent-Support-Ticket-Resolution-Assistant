@@ -95,5 +95,29 @@ Only resolved and approved tickets and approved KB articles are indexed.
 Each returned match is checked against current approval status as well, so a
 revoked source is not displayed while an index refresh is pending.
 Set `SEARCH_TICKET_TOP_K` and `SEARCH_KB_TOP_K` to positive integers to change
-the default result counts (5 each). Run `python -m app.build_indexes` after
-approved source records change; Phase 6 will connect this refresh to ingestion.
+the default result counts (5 each). Controlled Phase 6 ingestion refreshes the
+indexes when searchable text or evidence eligibility changes.
+
+## Updating support data
+
+From the repository root, add or update one complete validated JSON record:
+
+```text
+python -m backend.app.ingest ticket path/to/ticket.json
+python -m backend.app.ingest kb path/to/article.json
+python -m backend.app.ingest taxonomy category satellite_backhaul --reviewed-by admin
+```
+
+Ticket IDs and KB IDs stay stable; updates keep their original `created_at` and
+use a later timezone-aware `updated_at`. Changed KB guidance also increments
+`version`. Only resolved, approved tickets and approved KB articles enter
+retrieval. The ingestion command rebuilds small FAISS indexes when needed;
+unchanged text reuses its durable embedding. New categories require an explicit
+reviewed taxonomy command, then complaint analysis can use them on its next call.
+Stored severity is `low`/`medium`/`high`/`critical`; stored sentiment is
+`positive`/`neutral`/`frustrated`/`negative` (`ANGRY` maps to `negative`).
+
+Run `python -m backend.app.evolving_demo` from the repository root to see an
+unknown issue become a reviewed category and searchable ticket, including a
+restart check. This demo uses a temporary database and a local embedding model;
+it does not call Gemini.

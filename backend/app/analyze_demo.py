@@ -1,14 +1,20 @@
 """Run a single complaint analysis with Gemini or a deterministic fake."""
 
 import argparse
-import json
+import sys
 from pathlib import Path
+
+backend_dir = Path(__file__).resolve().parents[1]
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
 
 from dotenv import load_dotenv
 
 from .analysis import ComplaintAnalyzer
 from .gemini_client import GeminiClient, GeminiProviderError, GeminiRateLimitError, GeminiTimeoutError, MissingApiKeyError
 from .llm import FakeLLMClient
+from .seed import seed_database
+from .storage import Repository
 
 
 def main() -> None:
@@ -17,8 +23,6 @@ def main() -> None:
     parser.add_argument("--fake", action="store_true", help="Use a fixed local result without an API call")
     args = parser.parse_args()
 
-    taxonomy_path = Path(__file__).resolve().parents[1] / "data" / "seed" / "taxonomy.json"
-    taxonomy = json.loads(taxonomy_path.read_text(encoding="utf-8"))
     client = None
     if args.fake:
         client = FakeLLMClient({
@@ -35,8 +39,13 @@ def main() -> None:
         except MissingApiKeyError as exc:
             parser.exit(2, f"{exc}\n")
     try:
-        result = ComplaintAnalyzer(client, taxonomy["product"], taxonomy["category"]).analyze(args.complaint)
-        print(result.model_dump_json(indent=2))
+        repository = Repository()
+        try:
+            seed_database(repository)
+            result = ComplaintAnalyzer.from_repository(client, repository).analyze(args.complaint)
+            print(result.model_dump_json(indent=2))
+        finally:
+            repository.close()
     except (GeminiTimeoutError, GeminiRateLimitError, GeminiProviderError, ValueError) as exc:
         parser.exit(2, f"{exc}\n")
     finally:
