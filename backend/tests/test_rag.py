@@ -82,6 +82,36 @@ def test_hallucinated_sources_used_fails_even_if_steps_are_valid():
         )
 
 
+@pytest.mark.parametrize("field", [
+    "problem_summary", "escalation_recommendation", "confidence_or_evidence_note"
+])
+def test_hallucinated_id_in_free_text_fails(field):
+    with pytest.raises(GroundingError, match="outside retrieved"):
+        RAGGenerator(FakeLLMClient({}, response(**{field: "Follow KB-999."}))).generate(
+            "Broadband is down.", analysis(), [ticket()], [kb()]
+        )
+
+
+def test_action_text_id_must_appear_in_that_step_citations():
+    bad = response(resolution_steps=[{
+        "step_number": 1, "action": "Follow KB-002.", "source_ids": ["KB-001"]
+    }])
+    with pytest.raises(GroundingError, match="missing from its citations"):
+        RAGGenerator(FakeLLMClient({}, bad)).generate(
+            "Broadband is down.", analysis(), [ticket()], [kb(), kb("KB-002")]
+        )
+
+
+def test_action_text_can_name_its_valid_cited_source():
+    good = response(resolution_steps=[{
+        "step_number": 1, "action": "Follow KB-001's line check.", "source_ids": ["KB-001"]
+    }])
+    output = RAGGenerator(FakeLLMClient({}, good)).generate(
+        "Broadband is down.", analysis(), [ticket()], [kb()]
+    )
+    assert output.sources_used == ["KB-001"]
+
+
 def test_uncited_step_fails():
     with pytest.raises(GroundingError):
         RAGGenerator(FakeLLMClient({}, response([]))).generate(

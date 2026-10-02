@@ -15,6 +15,7 @@ from .search import KBMatch, TicketMatch
 MAX_EVIDENCE_PER_TYPE = 5
 DEFAULT_MIN_SIMILARITY = 0.25  # A weak-match heuristic, never a probability.
 SOURCE_ID_PATTERN = re.compile(r"^(?:T-\d{3,}|KB-\d{3,})$")
+TEXT_SOURCE_REFERENCE = re.compile(r"(?<![A-Za-z0-9_])(?:T|KB)-[A-Za-z0-9_-]+")
 
 
 class ResolutionStep(BaseModel):
@@ -159,6 +160,14 @@ class RAGGenerator:
                 raise ValueError("unexpected response type")
         except (ValidationError, ValueError, TypeError):
             raise GroundingError("Model returned an invalid or incomplete resolution") from None
+
+        for text in (result.problem_summary, result.escalation_recommendation,
+                     result.confidence_or_evidence_note):
+            if not set(TEXT_SOURCE_REFERENCE.findall(text)) <= allowed_ids:
+                raise GroundingError("Resolution text references a source outside retrieved evidence")
+        for step in result.resolution_steps:
+            if not set(TEXT_SOURCE_REFERENCE.findall(step.action)) <= set(step.source_ids):
+                raise GroundingError("Step text references a source missing from its citations")
 
         if result.sources_used and not set(result.sources_used) <= allowed_ids:
             raise GroundingError("Resolution cited a source outside retrieved evidence")
