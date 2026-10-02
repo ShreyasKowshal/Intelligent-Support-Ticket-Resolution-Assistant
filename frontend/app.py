@@ -65,9 +65,11 @@ def show_kb_articles(result: ResolveResult) -> None:
 
 def show_resolution(result: ResolveResult) -> None:
     resolution = result.resolution
-    st.header("4. Recommended Resolution")
+    st.header("4. Resolution Draft")
     if result.insufficient_evidence:
         st.warning("Insufficient evidence: no step-by-step fix is proposed. Review this case or escalate it.")
+    else:
+        st.warning("Agent review required: verify every step against current KB guidance before advising the customer.")
     st.write("**Problem summary:**", resolution.problem_summary)
     if not result.insufficient_evidence:
         for step in resolution.resolution_steps:

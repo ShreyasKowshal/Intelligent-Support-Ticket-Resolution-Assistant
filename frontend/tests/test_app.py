@@ -136,12 +136,13 @@ def test_four_demo_complaints_show_all_sections_and_citations(local_api):
         page = submit(complaint)
         assert [item.value for item in page.header] == [
             "1. Complaint Analysis", "2. Similar Resolved Tickets",
-            "3. Relevant Knowledge Base Articles", "4. Recommended Resolution",
+            "3. Relevant Knowledge Base Articles", "4. Resolution Draft",
             "5. Sources Used", "6. System Information",
         ]
         assert page.metric[0].value == expected_category
         assert len(page.expander) >= 2
         assert any(item.value.startswith("Citations: ") for item in page.caption)
+        assert any("verify every step against current KB guidance" in item.value for item in page.warning)
         assert any("Backend processing time" in item.value for item in page.caption)
         if expected_category == "other":
             assert any("Agent review required" in item.value for item in page.warning)

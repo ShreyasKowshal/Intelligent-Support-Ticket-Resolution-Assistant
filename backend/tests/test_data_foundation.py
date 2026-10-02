@@ -2,10 +2,13 @@
 
 import json
 import shutil
+from datetime import timedelta
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import inspect
+from sqlalchemy import inspect, schema
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.engine import URL
 
 from app.models import SupportTicket, TaxonomyValue
@@ -15,6 +18,7 @@ from app.storage import (
     Repository,
     StorageUnavailableError,
     UnknownTaxonomyValueError,
+    metadata,
 )
 
 
@@ -42,11 +46,61 @@ def test_bad_database_url_has_clear_error():
         Repository("not-a-database-url")
 
 
+def test_database_url_defaults_to_local_sqlite(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    store = Repository()
+    try:
+        assert store.engine.url.drivername == "sqlite"
+        expected = Path(__file__).resolve().parents[1] / "data" / "support.db"
+        assert Path(store.engine.url.database) == expected
+    finally:
+        store.close()
+
+
+def test_explicit_database_url_overrides_environment(monkeypatch, tmp_path):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/support")
+    path = tmp_path / "explicit.db"
+    store = Repository(URL.create("sqlite", database=str(path)))
+    try:
+        assert store.engine.url.drivername == "sqlite"
+        assert Path(store.engine.url.database) == path
+    finally:
+        store.close()
+
+
+@pytest.mark.parametrize("scheme", ["postgres", "postgresql"])
+def test_render_postgres_url_uses_psycopg(monkeypatch, scheme):
+    monkeypatch.setenv("DATABASE_URL", f"{scheme}://localhost/support")
+    store = Repository()
+    try:
+        assert store.engine.url.drivername == "postgresql+psycopg"
+        assert store.engine.url.database == "support"
+    finally:
+        store.close()
+
+
+def test_schema_compiles_for_postgres():
+    for table in metadata.tables.values():
+        assert str(schema.CreateTable(table).compile(dialect=postgresql.dialect()))
+
+
 def test_seed_loads_expected_records_and_is_idempotent(repository):
     assert seed_database(repository) == {"taxonomy": 24, "tickets": 120, "kb_articles": 24}
     assert seed_database(repository) == {"taxonomy": 0, "tickets": 0, "kb_articles": 0}
     assert len(repository.list_tickets()) == 120
     assert len(repository.list_kb_articles()) == 24
+
+
+def test_restart_seed_preserves_updated_ticket(repository):
+    seed_database(repository)
+    original = repository.get_ticket("T-001")
+    changed = original.model_copy(update={
+        "resolution": "Reviewed replacement guidance.",
+        "updated_at": original.updated_at + timedelta(days=1),
+    })
+    assert repository.upsert_ticket(changed) == "updated"
+    assert seed_database(repository) == {"taxonomy": 0, "tickets": 0, "kb_articles": 0}
+    assert repository.get_ticket("T-001") == changed
 
 
 def test_retrieval_and_local_persistence(repository):

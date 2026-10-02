@@ -18,7 +18,7 @@ from sqlalchemy import (
     select,
     update,
 )
-from sqlalchemy.engine import Connection, Engine, URL
+from sqlalchemy.engine import Connection, Engine, URL, make_url
 from sqlalchemy.exc import ArgumentError, IntegrityError, SQLAlchemyError
 
 from app.models import EmbeddingMetadata, KnowledgeBaseArticle, SupportTicket, TaxonomyValue
@@ -94,7 +94,12 @@ class Repository:
             db_path.parent.mkdir(parents=True, exist_ok=True)
             database_url = URL.create("sqlite", database=str(db_path))
         try:
-            self.engine: Engine = create_engine(database_url)
+            url = make_url(database_url)
+            # Render supplies postgresql://; old providers may supply postgres://.
+            # Use the installed psycopg driver without altering local SQLite URLs.
+            if url.drivername in {"postgres", "postgresql"}:
+                url = url.set(drivername="postgresql+psycopg")
+            self.engine: Engine = create_engine(url)
         except (ArgumentError, ImportError, SQLAlchemyError) as exc:
             raise StorageUnavailableError(
                 "Invalid or unsupported DATABASE_URL. Leave it unset for local SQLite."
