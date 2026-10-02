@@ -103,7 +103,7 @@ Never commit `.env`, credentials, or secrets.
    same-text TF-IDF baseline, scripted RAG adversarial checks, and seven warm
    FastAPI requests per endpoint. JSON metrics and a readable summary are in
    `backend/evaluation/results/`. `--live` is optional and separate. Commit
-   message: `Add evaluation framework` (see current `develop` HEAD for hash).
+   `082ff7a` (`Add evaluation framework`).
 
 ## Phase 9 results and interpretation
 
@@ -138,7 +138,7 @@ review and, for production, stronger evidence verification.
 
 Seven warm fake-provider in-process requests per route were measured. The
 latest saved run's mean latency is in `backend/evaluation/results/` (roughly
-1 ms `/analyze`, 20 ms `/search`, 19 ms `/resolve` on this machine). Times
+1 ms `/analyze`, 20 ms `/search`, and 21.572 ms `/resolve` on this machine). Times
 exclude cold model/index loading, HTTP transport, and live Gemini. `/health`
 and `/ready` returned 200 with the temporary DB, search, model, and fake
 provider ready. `/ready` does not probe Gemini's network reachability.
@@ -205,3 +205,14 @@ root. The API reads the ignored repository-root `.env` for `GEMINI_API_KEY`;
 `.env.example` documents optional configuration. `--live` on the evaluation
 command is optional, uses up to three synthetic complaints, and writes an
 ignored environment-specific `live_sample.json`.
+
+Running `streamlit run frontend/app.py` can be sensitive to the current
+working directory and Python import path. With the virtual environment
+activated, the verified simple command from the repository root is
+`python -m streamlit run frontend/app.py`. The longer explicit virtual-
+environment command was also verified in Windows PowerShell:
+
+```powershell
+Set-Location C:\Users\ASUS\Intelligent-Support-Ticket-Resolution-Assistant
+& .\.venv\Scripts\python.exe -m streamlit run .\frontend\app.py --server.address 127.0.0.1 --server.port 8501
+```
