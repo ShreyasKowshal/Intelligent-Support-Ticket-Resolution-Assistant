@@ -5,7 +5,6 @@ from time import monotonic
 
 import streamlit as st
 
-from frontend import live_complaint
 from frontend.api_client import (
     BackendConnectionError, FrontendError, MAX_COMPLAINT_LENGTH, ResolveResult,
     check_backend_readiness, resolve_complaint,
@@ -172,7 +171,13 @@ def main() -> None:
 
     with st.container(border=True):
         st.subheader("Customer complaint")
-        complaint = live_complaint.complaint_text_area(clear_previous_result)
+        complaint = st.text_area(
+            "Customer complaint", key="complaint", height=170,
+            placeholder="Paste the customer's raw telecom complaint here...",
+            on_change=clear_previous_result,
+            label_visibility="collapsed",
+            help="The character count and submit button update when you leave this field or press Ctrl+Enter.",
+        )
         if (st.session_state.result is not None
                 and st.session_state.result_input_fingerprint != complaint_fingerprint(complaint)):
             clear_previous_result()

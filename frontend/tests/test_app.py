@@ -16,7 +16,6 @@ from sqlalchemy.engine import URL
 from streamlit.testing.v1 import AppTest
 
 import frontend.api_client as api_client
-from frontend import live_complaint
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "backend"))
@@ -140,26 +139,12 @@ def status_is(page, label):
 
 
 def set_complaint(page, complaint):
-    """Simulate the live component's value event in AppTest's Python state."""
-    if page.text_area:
-        return page.text_area[0].set_value(complaint).run(timeout=30)
-    page.session_state["complaint_input"] = {"value": complaint}
-    return page.run(timeout=30)
+    """Commit the native textarea's value as Streamlit does on blur/Ctrl+Enter."""
+    return page.text_area[0].set_value(complaint).run(timeout=30)
 
 
 def complaint_value(page):
-    if page.text_area:
-        return page.text_area[0].value
-    return page.session_state["complaint_input"]["value"]
-
-
-@pytest.fixture
-def native_test_input(monkeypatch):
-    """AppTest cannot send Components v2 browser events; retain route-level UI tests."""
-    def render(on_change):
-        return st.text_area("Customer complaint", key="complaint", on_change=on_change)
-
-    monkeypatch.setattr(live_complaint, "complaint_text_area", render)
+    return page.text_area[0].value
 
 
 @pytest.mark.parametrize(
@@ -214,7 +199,37 @@ def test_failed_first_check_is_yellow_and_submission_is_disabled(monkeypatch):
     assert calls == ["ready"]
 
 
-def test_starting_backend_becomes_ready_on_later_poll(monkeypatch, native_test_input):
+def test_editing_uses_native_widget_without_explicit_rerun_or_resolve(local_api, monkeypatch):
+    page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
+    assert status_is(page, "🟢 Backend ready")
+    monkeypatch.setattr(st, "rerun", lambda: pytest.fail("editing explicitly reran the page"))
+    monkeypatch.setattr(api_client, "resolve_complaint", lambda *_: pytest.fail("editing called resolve"))
+    set_complaint(page, "My broadband is down.")
+    assert complaint_value(page) == "My broadband is down."
+    assert not page.get_by_key("submit_complaint").disabled
+    set_complaint(page, "  ")
+    assert page.get_by_key("submit_complaint").disabled
+    assert not page.exception
+
+
+def test_editing_does_not_restart_readiness_or_poll_early(monkeypatch):
+    checks = []
+    monkeypatch.setattr(api_client, "check_backend_readiness", lambda: checks.append(1) or "starting")
+    monkeypatch.setattr(api_client, "resolve_complaint", lambda *_: pytest.fail("editing called resolve"))
+    page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
+    started_at = page.session_state["backend_started_at"]
+    next_check_at = page.session_state["backend_next_check_at"]
+    assert len(checks) == 1
+    set_complaint(page, "My broadband is down.")
+    set_complaint(page, "My broadband was down.")
+    assert len(checks) == 1
+    assert page.session_state["backend_started_at"] == started_at
+    assert page.session_state["backend_next_check_at"] == next_check_at
+    assert page.get_by_key("submit_complaint").disabled
+    assert complaint_value(page) == "My broadband was down."
+
+
+def test_starting_backend_becomes_ready_on_later_poll(monkeypatch):
     states = iter(["starting", "ready"])
     monkeypatch.setattr(api_client, "check_backend_readiness", lambda: next(states))
     page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
@@ -227,7 +242,7 @@ def test_starting_backend_becomes_ready_on_later_poll(monkeypatch, native_test_i
     assert complaint_value(page) == "My broadband is down."
 
 
-def test_retry_window_expires_to_red_and_manual_retry_preserves_complaint(monkeypatch, native_test_input):
+def test_retry_window_expires_to_red_and_manual_retry_preserves_complaint(monkeypatch):
     states = iter(["starting", "starting", "ready"])
     monkeypatch.setattr(api_client, "check_backend_readiness", lambda: next(states))
     page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
@@ -243,7 +258,7 @@ def test_retry_window_expires_to_red_and_manual_retry_preserves_complaint(monkey
     assert complaint_value(page) == "My broadband is down."
 
 
-def test_one_click_makes_one_resolve_call_even_after_rerun(local_api, monkeypatch, native_test_input):
+def test_one_click_makes_one_resolve_call_even_after_rerun(local_api, monkeypatch):
     calls = []
     original = api_client.resolve_complaint
 
@@ -260,7 +275,7 @@ def test_one_click_makes_one_resolve_call_even_after_rerun(local_api, monkeypatc
     assert page.header
 
 
-def test_connection_loss_restarts_status_without_resubmitting(monkeypatch, native_test_input):
+def test_connection_loss_restarts_status_without_resubmitting(monkeypatch):
     states = iter(["ready", "starting"])
     calls = []
     monkeypatch.setattr(api_client, "check_backend_readiness", lambda: next(states))
@@ -278,7 +293,7 @@ def test_connection_loss_restarts_status_without_resubmitting(monkeypatch, nativ
     assert calls == ["resolve"]
 
 
-def test_four_demo_complaints_show_all_sections_and_citations(local_api, native_test_input):
+def test_four_demo_complaints_show_all_sections_and_citations(local_api):
     for complaint, expected_category in COMPLAINTS:
         page = submit(complaint)
         assert [item.value for item in page.header] == [
@@ -295,7 +310,7 @@ def test_four_demo_complaints_show_all_sections_and_citations(local_api, native_
             assert any("Agent review required" in item.value for item in page.warning)
 
 
-def test_insufficient_evidence_has_no_confident_steps(local_api, native_test_input):
+def test_insufficient_evidence_has_no_confident_steps(local_api):
     page = submit("noevidence My broadband service has an unfamiliar failure.")
     assert any("Insufficient evidence" in item.value for item in page.warning)
     assert any("Agent review required" in item.value for item in page.warning)
@@ -303,7 +318,7 @@ def test_insufficient_evidence_has_no_confident_steps(local_api, native_test_inp
     assert any("No sources were cited" in item.value for item in page.info)
 
 
-def test_provider_error_is_cleanly_displayed(local_api, native_test_input):
+def test_provider_error_is_cleanly_displayed(local_api):
     page = submit("providererror My broadband has stopped working.")
     assert any("AI provider is unavailable" in item.value for item in page.error)
     assert not page.header
@@ -334,9 +349,8 @@ def test_complaint_counter_and_input_validation(local_api):
     assert page.get_by_key("submit_complaint").disabled
 
 
-def test_counter_uses_current_component_value_when_typing_and_clearing(local_api):
+def test_counter_uses_committed_textarea_value_when_editing_and_clearing(local_api):
     page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
-    page.session_state["complaint"] = "stale value"
     set_complaint(page, "h")
     assert any("1 / 3000 characters" in item.value for item in page.caption)
     assert not page.get_by_key("submit_complaint").disabled
@@ -347,7 +361,7 @@ def test_counter_uses_current_component_value_when_typing_and_clearing(local_api
     assert page.get_by_key("submit_complaint").disabled
 
 
-def test_non_actionable_input_shows_clarification_without_evidence(local_api, native_test_input):
+def test_non_actionable_input_shows_clarification_without_evidence(local_api):
     page = submit("😂")
     assert [item.value for item in page.header] == ["1. Complaint Analysis"]
     assert not page.expander
@@ -357,7 +371,7 @@ def test_non_actionable_input_shows_clarification_without_evidence(local_api, na
     assert not any(item.value.startswith("Citations: ") for item in page.caption)
 
 
-def test_editing_complaint_clears_previous_recommendation(local_api, native_test_input):
+def test_editing_complaint_clears_previous_recommendation(local_api):
     page = submit(COMPLAINTS[0][0])
     assert page.header
     set_complaint(page, COMPLAINTS[1][0])
