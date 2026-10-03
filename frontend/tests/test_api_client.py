@@ -8,7 +8,7 @@ import pytest
 from frontend.api_client import (
     BackendConnectionError, FrontendError, MAX_COMPLAINT_LENGTH, check_backend_health,
     check_backend_readiness, WAKE_READ_TIMEOUT_SECONDS,
-    get_api_base_url, resolve_complaint,
+    get_api_base_url, resolve_complaint, wake_backend_readiness,
 )
 from backend.app.config import MAX_COMPLAINT_LENGTH as BACKEND_COMPLAINT_LENGTH
 
@@ -92,11 +92,11 @@ def test_hosted_wake_targets_only_configured_backend_host(monkeypatch, caplog):
 
     def handler(request):
         calls.append(str(request.url))
-        return httpx.Response(200, json={"status": "ok"})
+        return httpx.Response(200, json=ready_body())
 
     assert get_api_base_url() == "https://support-ticket-assistant-api.onrender.com"
-    assert check_backend_health(transport=httpx.MockTransport(handler)) == "alive"
-    assert calls == ["https://support-ticket-assistant-api.onrender.com/health"]
+    assert wake_backend_readiness(read_timeout=115.0, transport=httpx.MockTransport(handler)) == "ready"
+    assert calls == ["https://support-ticket-assistant-api.onrender.com/ready"]
     assert "FRONTEND_WAKE_TARGET=support-ticket-assistant-api.onrender.com" in caplog.text
     assert "FRONTEND_WAKE_REQUEST_START" in caplog.text
     assert "FRONTEND_WAKE_REQUEST_STATUS=200" in caplog.text
@@ -109,30 +109,51 @@ def test_pre_request_exception_is_logged_by_type_only(monkeypatch, caplog):
         raise RuntimeError("private internal detail")
 
     monkeypatch.setattr(httpx, "Client", broken_client)
-    assert check_backend_health() == "unavailable"
+    assert wake_backend_readiness(read_timeout=115.0) == "unavailable"
     assert "FRONTEND_WAKE_REQUEST_EXCEPTION=RuntimeError" in caplog.text
     assert "FRONTEND_WAKE_REQUEST_START" not in caplog.text
     assert "private internal detail" not in caplog.text
 
 
-def test_health_wake_uses_long_read_timeout_without_changing_ready_timeout(monkeypatch):
+def test_ready_wake_uses_long_read_timeout_without_changing_regular_ready_timeout(monkeypatch):
     monkeypatch.setenv("API_BASE_URL", "http://localhost:8765")
     observed = []
 
     def handler(request):
         observed.append((request.url.path, request.extensions["timeout"]))
-        if request.url.path == "/health":
-            return httpx.Response(200, json={"status": "ok"})
         return httpx.Response(200, json=ready_body())
 
     transport = httpx.MockTransport(handler)
-    assert check_backend_health(transport=transport) == "alive"
+    assert wake_backend_readiness(read_timeout=WAKE_READ_TIMEOUT_SECONDS, transport=transport) == "ready"
     assert check_backend_readiness(transport=transport) == "ready"
-    assert observed[0][0] == "/health"
+    assert observed[0][0] == "/ready"
     assert observed[0][1]["read"] == WAKE_READ_TIMEOUT_SECONDS == 115.0
     assert observed[0][1]["connect"] == 5.0
     assert observed[1][0] == "/ready"
     assert observed[1][1]["read"] == 3.0
+
+
+def test_ready_wake_follows_redirects_on_same_backend(monkeypatch):
+    monkeypatch.setenv("API_BASE_URL", "https://support-ticket-assistant-api.onrender.com")
+    requests = []
+
+    def handler(request):
+        requests.append((str(request.url), request.headers.get("user-agent")))
+        if len(requests) == 1:
+            return httpx.Response(302, headers={"Location": "/ready?startup=1"})
+        return httpx.Response(200, json=ready_body())
+
+    assert wake_backend_readiness(read_timeout=115.0, transport=httpx.MockTransport(handler)) == "ready"
+    assert [url for url, _ in requests] == [
+        "https://support-ticket-assistant-api.onrender.com/ready",
+        "https://support-ticket-assistant-api.onrender.com/ready?startup=1",
+    ]
+    assert all(agent.startswith("python-httpx/") for _, agent in requests)
+
+
+@pytest.mark.parametrize("status", [502, 503, 504])
+def test_ready_wake_gateway_failures_remain_transient(status):
+    assert wake_backend_readiness(read_timeout=115.0, transport=transport_for(status, {})) == "starting"
 
 
 @pytest.mark.parametrize("failure", [

@@ -8,9 +8,8 @@ import streamlit as st
 
 from frontend import live_complaint, wake
 from frontend.api_client import (
-    WAKE_CONNECT_TIMEOUT_SECONDS, WAKE_READ_TIMEOUT_SECONDS,
     BackendConnectionError, FrontendError, MAX_COMPLAINT_LENGTH, ResolveResult,
-    check_backend_readiness, get_api_base_url, resolve_complaint,
+    get_api_base_url, resolve_complaint,
 )
 
 RETRY_INTERVAL_SECONDS = 5
@@ -23,30 +22,25 @@ STATUS_LABELS = {
 }
 
 
-def launch_wake_request(now: float) -> None:
-    """Start at most one session wake worker within the remaining budget."""
-    remaining = RETRY_WINDOW_SECONDS - (now - st.session_state.backend_started_at)
-    if remaining <= WAKE_CONNECT_TIMEOUT_SECONDS:
-        return
-    read_timeout = min(WAKE_READ_TIMEOUT_SECONDS, remaining - WAKE_CONNECT_TIMEOUT_SECONDS)
+def launch_wake_request() -> None:
+    """Start one session worker for the current startup window."""
     try:
-        st.session_state.backend_wake_future = wake.launch_backend_wake(read_timeout=read_timeout)
+        st.session_state.backend_wake_future = wake.launch_backend_wake(
+            deadline=st.session_state.backend_started_at + RETRY_WINDOW_SECONDS,
+            retry_interval=RETRY_INTERVAL_SECONDS,
+        )
     except Exception as exc:
         logger.error("FRONTEND_WAKE_WORKER_EXCEPTION=%s", type(exc).__name__)
         st.session_state.backend_state = "unavailable"
-        return
-    st.session_state.backend_wake_started_at = now
 
 
 def start_backend_check() -> None:
-    """Start or reuse one bounded /health wake, then verify /ready."""
+    """Start or reuse one bounded /ready wake process."""
     logger.warning("FRONTEND_WAKE_INIT")
     pending = st.session_state.get("backend_wake_future")
-    pending_started_at = st.session_state.get("backend_wake_started_at")
     st.session_state.backend_state = "starting"
-    st.session_state.backend_stage = "wake"
     st.session_state.backend_started_at = monotonic()
-    st.session_state.backend_next_check_at = 0.0
+    st.session_state.backend_retry_after_pending = pending is not None and not pending.done()
     try:
         get_api_base_url()
     except FrontendError:
@@ -56,61 +50,45 @@ def start_backend_check() -> None:
         return
     if pending is not None and not pending.done():
         st.session_state.backend_wake_future = pending
-        st.session_state.backend_wake_started_at = pending_started_at
     else:
         st.session_state.backend_wake_future = None
-        launch_wake_request(st.session_state.backend_started_at)
+        launch_wake_request()
 
 
 def poll_backend_status() -> bool:
-    """Return whether the two-stage check reached ready or unavailable."""
+    """Read the one worker's result without blocking the Streamlit page."""
     if st.session_state.backend_state != "starting":
         return False
     now = monotonic()
+    future = st.session_state.get("backend_wake_future")
+    if future is None:
+        st.session_state.backend_state = "unavailable"
+        logger.error("FRONTEND_WAKE_WORKER_MISSING")
+        return True
+    if future.done():
+        try:
+            state = future.result()
+        except Exception as exc:
+            logger.error("FRONTEND_WAKE_WORKER_EXCEPTION=%s", type(exc).__name__)
+            state = "unavailable"
+        st.session_state.backend_wake_future = None
+        if state == "ready":
+            logger.warning("FRONTEND_WAKE_READY_OK")
+            st.session_state.backend_state = "ready"
+            return True
+        if (
+            st.session_state.backend_retry_after_pending
+            and now - st.session_state.backend_started_at < RETRY_WINDOW_SECONDS
+        ):
+            st.session_state.backend_retry_after_pending = False
+            launch_wake_request()
+            return st.session_state.backend_state == "unavailable"
+        st.session_state.backend_state = "unavailable"
+        return True
     if now - st.session_state.backend_started_at >= RETRY_WINDOW_SECONDS:
         st.session_state.backend_state = "unavailable"
         logger.warning("FRONTEND_WAKE_STARTUP_WINDOW_EXPIRED")
         return True
-    if st.session_state.backend_stage == "wake":
-        future = st.session_state.backend_wake_future
-        if future is None:
-            if now < st.session_state.backend_next_check_at:
-                return False
-            launch_wake_request(now)
-            future = st.session_state.backend_wake_future
-        if future is None or not future.done():
-            return False
-        health = future.result()
-        st.session_state.backend_wake_future = None
-        if health == "unavailable":
-            st.session_state.backend_state = "unavailable"
-            return True
-        if health == "starting":
-            st.session_state.backend_next_check_at = (
-                st.session_state.backend_wake_started_at + RETRY_INTERVAL_SECONDS
-            )
-            if now >= st.session_state.backend_next_check_at:
-                launch_wake_request(now)
-            return False
-        st.session_state.backend_stage = "ready"
-        logger.warning("FRONTEND_WAKE_HEALTH_OK")
-    elif now < st.session_state.backend_next_check_at:
-        return False
-    logger.warning("FRONTEND_WAKE_READY_CHECK")
-    state = check_backend_readiness()
-    logger.warning("FRONTEND_WAKE_READY_STATUS=%s", state)
-    if state == "ready":
-        logger.warning("FRONTEND_WAKE_READY_OK")
-        st.session_state.backend_state = state
-        return True
-    if state == "unavailable":
-        st.session_state.backend_state = state
-        return True
-    if monotonic() - st.session_state.backend_started_at >= RETRY_WINDOW_SECONDS:
-        st.session_state.backend_state = "unavailable"
-        logger.warning("FRONTEND_WAKE_STARTUP_WINDOW_EXPIRED")
-        return True
-    st.session_state.backend_next_check_at = now + RETRY_INTERVAL_SECONDS
     return False
 
 
@@ -229,7 +207,7 @@ def main() -> None:
     st.session_state.setdefault("last_submitted_complaint", "")
     st.session_state.setdefault("last_submit_id", None)
     st.session_state.setdefault("submission_ack", 0)
-    if "backend_state" not in st.session_state or "backend_stage" not in st.session_state:
+    if "backend_state" not in st.session_state or "backend_wake_future" not in st.session_state:
         start_backend_check()
 
     @st.fragment(run_every=RETRY_INTERVAL_SECONDS if st.session_state.backend_state == "starting" else None)

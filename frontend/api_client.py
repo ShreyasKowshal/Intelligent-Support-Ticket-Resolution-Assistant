@@ -182,16 +182,53 @@ def check_backend_health(
 
 
 def check_backend_readiness(*, transport: httpx.BaseTransport | None = None) -> ReadinessState:
-    """Check processing dependencies only after /health confirms liveness."""
+    """Check processing dependencies with a short timeout."""
+    return _request_readiness(transport=transport, timeout=READINESS_TIMEOUT, wake=False)
+
+
+def wake_backend_readiness(
+    *, read_timeout: float, transport: httpx.BaseTransport | None = None,
+) -> ReadinessState:
+    """Use the browser-proven /ready route for a bounded cold-start attempt."""
+    timeout = httpx.Timeout(
+        connect=WAKE_CONNECT_TIMEOUT_SECONDS, read=read_timeout,
+        write=5.0, pool=5.0,
+    )
+    return _request_readiness(transport=transport, timeout=timeout, wake=True)
+
+
+def _request_readiness(
+    *, transport: httpx.BaseTransport | None, timeout: httpx.Timeout, wake: bool,
+) -> ReadinessState:
     try:
-        url = get_api_base_url() + "/ready"
+        base_url = get_api_base_url()
     except FrontendError:
+        if wake:
+            wake_logger.error("FRONTEND_WAKE_CONFIG_ERROR")
         return "unavailable"
+    url = base_url + "/ready"
+    if wake:
+        wake_logger.warning("FRONTEND_WAKE_TARGET=%s", httpx.URL(base_url).host)
     try:
-        with httpx.Client(timeout=READINESS_TIMEOUT, transport=transport, follow_redirects=False) as client:
+        with httpx.Client(timeout=timeout, transport=transport, follow_redirects=wake) as client:
+            if wake:
+                wake_logger.warning("FRONTEND_WAKE_REQUEST_START route=/ready")
             response = client.get(url)
-    except (httpx.TimeoutException, httpx.RequestError):
+    except httpx.TimeoutException as exc:
+        if wake:
+            wake_logger.warning("FRONTEND_WAKE_REQUEST_TIMEOUT type=%s", type(exc).__name__)
         return "starting"
+    except httpx.RequestError as exc:
+        if wake:
+            wake_logger.warning("FRONTEND_WAKE_REQUEST_EXCEPTION=%s", type(exc).__name__)
+        return "starting"
+    except Exception as exc:
+        if wake:
+            wake_logger.error("FRONTEND_WAKE_REQUEST_EXCEPTION=%s", type(exc).__name__)
+            return "unavailable"
+        raise
+    if wake:
+        wake_logger.warning("FRONTEND_WAKE_REQUEST_STATUS=%d", response.status_code)
     if response.status_code in (401, 403, 404, 405):
         return "unavailable"
     if response.status_code not in (200, 503):
