@@ -121,12 +121,20 @@ ERROR_MESSAGES = {
 
 def get_api_base_url() -> str:
     """Read a local default or an explicit API origin without exposing it in the UI."""
-    raw = (os.getenv("API_BASE_URL") or DEFAULT_API_BASE_URL).strip()
+    configured = os.getenv("API_BASE_URL", "").strip()
+    hosted = os.getenv("RENDER") == "true"
+    if hosted and not configured:
+        raise FrontendError("The backend address is not configured. Check API_BASE_URL.")
+    raw = configured or DEFAULT_API_BASE_URL
     try:
         url = httpx.URL(raw)
     except (TypeError, ValueError):
         raise FrontendError("The backend address is invalid. Check API_BASE_URL.") from None
-    if url.scheme not in ("http", "https") or not url.host or url.userinfo or url.query or url.fragment:
+    if (
+        url.scheme not in ("http", "https") or not url.host or url.userinfo
+        or url.query or url.fragment or url.path not in ("", "/")
+        or (hosted and (url.scheme != "https" or url.host in ("localhost", "127.0.0.1", "::1") or url.port))
+    ):
         raise FrontendError("The backend address is invalid. Check API_BASE_URL.")
     return str(url).rstrip("/")
 
@@ -137,31 +145,36 @@ def check_backend_health(
 ) -> HealthState:
     """Wake a sleeping backend with its lightweight liveness route."""
     try:
-        url = get_api_base_url() + "/health"
+        base_url = get_api_base_url()
     except FrontendError:
-        wake_logger.warning("WAKE_REQUEST_CONFIGURATION_ERROR")
+        wake_logger.error("FRONTEND_WAKE_CONFIG_ERROR")
         return "unavailable"
+    wake_logger.warning("FRONTEND_WAKE_TARGET=%s", httpx.URL(base_url).host)
+    url = base_url + "/health"
     try:
         timeout = httpx.Timeout(
             connect=WAKE_CONNECT_TIMEOUT_SECONDS, read=read_timeout,
             write=5.0, pool=5.0,
         )
         with httpx.Client(timeout=timeout, transport=transport, follow_redirects=False) as client:
+            wake_logger.warning("FRONTEND_WAKE_REQUEST_START")
             response = client.get(url)
-    except httpx.TimeoutException:
-        wake_logger.warning("WAKE_REQUEST_TIMEOUT")
+    except httpx.TimeoutException as exc:
+        wake_logger.warning("FRONTEND_WAKE_REQUEST_TIMEOUT type=%s", type(exc).__name__)
         return "starting"
-    except httpx.RequestError:
-        wake_logger.warning("WAKE_REQUEST_CONNECTION_ERROR")
+    except httpx.RequestError as exc:
+        wake_logger.warning("FRONTEND_WAKE_REQUEST_EXCEPTION=%s", type(exc).__name__)
         return "starting"
-    wake_logger.warning("WAKE_REQUEST_HTTP_STATUS status=%d", response.status_code)
+    except Exception as exc:
+        wake_logger.error("FRONTEND_WAKE_REQUEST_EXCEPTION=%s", type(exc).__name__)
+        return "unavailable"
+    wake_logger.warning("FRONTEND_WAKE_REQUEST_STATUS=%d", response.status_code)
     if response.status_code in (401, 403, 404, 405):
         return "unavailable"
     if response.status_code != 200:
         return "starting"
     try:
         if response.json().get("status") == "ok":
-            wake_logger.warning("WAKE_REQUEST_SUCCEEDED")
             return "alive"
         return "starting"
     except (ValueError, AttributeError):

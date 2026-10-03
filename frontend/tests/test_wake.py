@@ -27,9 +27,13 @@ def test_wake_request_remains_pending_until_health_responds(monkeypatch):
     assert observed == [115.0]
 
 
-def test_wake_worker_sanitizes_unexpected_failure(monkeypatch):
+def test_wake_worker_sanitizes_unexpected_failure(monkeypatch, caplog):
     def failure(*, read_timeout):
         raise RuntimeError("private internal detail")
 
     monkeypatch.setattr(wake, "check_backend_health", failure)
-    assert wake.launch_backend_wake(read_timeout=115.0).result(timeout=2) == "starting"
+    assert wake.launch_backend_wake(read_timeout=115.0).result(timeout=2) == "unavailable"
+    assert "FRONTEND_WAKE_WORKER_CREATED" in caplog.text
+    assert "FRONTEND_WAKE_WORKER_STARTED" in caplog.text
+    assert "FRONTEND_WAKE_WORKER_EXCEPTION=RuntimeError" in caplog.text
+    assert "private internal detail" not in caplog.text

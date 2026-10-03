@@ -14,12 +14,14 @@ def launch_backend_wake(*, read_timeout: float) -> Future[HealthState]:
     result: Future[HealthState] = Future()
 
     def request() -> None:
-        logger.warning("WAKE_REQUEST_STARTED")
+        logger.warning("FRONTEND_WAKE_WORKER_STARTED")
         try:
             result.set_result(check_backend_health(read_timeout=read_timeout))
-        except Exception:
-            logger.warning("WAKE_REQUEST_CONNECTION_ERROR")
-            result.set_result("starting")
+        except Exception as exc:
+            logger.error("FRONTEND_WAKE_WORKER_EXCEPTION=%s", type(exc).__name__)
+            result.set_result("unavailable")
 
-    Thread(target=request, name="backend-wake", daemon=True).start()
+    worker = Thread(target=request, name="backend-wake", daemon=True)
+    logger.warning("FRONTEND_WAKE_WORKER_CREATED")
+    worker.start()
     return result

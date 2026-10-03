@@ -74,6 +74,47 @@ def test_health_wake_uses_api_base_url_and_lightweight_route(monkeypatch):
     assert calls == [("GET", "http://localhost:8765/health")]
 
 
+def test_hosted_backend_url_is_explicit_and_has_no_localhost_fallback(monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.delenv("API_BASE_URL", raising=False)
+    with pytest.raises(FrontendError, match="not configured"):
+        get_api_base_url()
+    for invalid in ("http://127.0.0.1:8000", "https://localhost", "http://api.example.com", "https://api.example.com/path"):
+        monkeypatch.setenv("API_BASE_URL", invalid)
+        with pytest.raises(FrontendError, match="invalid"):
+            get_api_base_url()
+
+
+def test_hosted_wake_targets_only_configured_backend_host(monkeypatch, caplog):
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv("API_BASE_URL", "https://support-ticket-assistant-api.onrender.com")
+    calls = []
+
+    def handler(request):
+        calls.append(str(request.url))
+        return httpx.Response(200, json={"status": "ok"})
+
+    assert get_api_base_url() == "https://support-ticket-assistant-api.onrender.com"
+    assert check_backend_health(transport=httpx.MockTransport(handler)) == "alive"
+    assert calls == ["https://support-ticket-assistant-api.onrender.com/health"]
+    assert "FRONTEND_WAKE_TARGET=support-ticket-assistant-api.onrender.com" in caplog.text
+    assert "FRONTEND_WAKE_REQUEST_START" in caplog.text
+    assert "FRONTEND_WAKE_REQUEST_STATUS=200" in caplog.text
+
+
+def test_pre_request_exception_is_logged_by_type_only(monkeypatch, caplog):
+    monkeypatch.setenv("API_BASE_URL", "https://support-ticket-assistant-api.onrender.com")
+
+    def broken_client(*args, **kwargs):
+        raise RuntimeError("private internal detail")
+
+    monkeypatch.setattr(httpx, "Client", broken_client)
+    assert check_backend_health() == "unavailable"
+    assert "FRONTEND_WAKE_REQUEST_EXCEPTION=RuntimeError" in caplog.text
+    assert "FRONTEND_WAKE_REQUEST_START" not in caplog.text
+    assert "private internal detail" not in caplog.text
+
+
 def test_health_wake_uses_long_read_timeout_without_changing_ready_timeout(monkeypatch):
     monkeypatch.setenv("API_BASE_URL", "http://localhost:8765")
     observed = []

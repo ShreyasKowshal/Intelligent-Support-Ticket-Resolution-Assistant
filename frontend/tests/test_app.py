@@ -220,6 +220,28 @@ def test_initial_load_wakes_with_health_before_ready(monkeypatch):
     assert status_is(page, "🟢 Backend ready")
 
 
+def test_hosted_missing_backend_url_fails_closed_before_worker(monkeypatch, caplog):
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.delenv("API_BASE_URL", raising=False)
+    monkeypatch.setattr(wake, "launch_backend_wake", lambda **_: pytest.fail("worker launched without URL"))
+    page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
+    assert status_is(page, "🔴 Backend unavailable")
+    assert page.get_by_key("submit_complaint").disabled
+    assert "FRONTEND_WAKE_INIT" in caplog.text
+    assert "FRONTEND_WAKE_CONFIG_ERROR" in caplog.text
+
+
+def test_worker_start_failure_cannot_leave_fake_starting_status(monkeypatch, caplog):
+    def failed_start(*, read_timeout):
+        raise RuntimeError("private internal detail")
+
+    monkeypatch.setattr(wake, "launch_backend_wake", failed_start)
+    page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
+    assert status_is(page, "🔴 Backend unavailable")
+    assert "FRONTEND_WAKE_WORKER_EXCEPTION=RuntimeError" in caplog.text
+    assert "private internal detail" not in caplog.text
+
+
 def test_pending_wake_stays_single_and_does_not_block_complaint_editing(monkeypatch):
     pending = Future()
     launches = []

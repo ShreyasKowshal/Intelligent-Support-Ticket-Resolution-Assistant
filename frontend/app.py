@@ -10,7 +10,7 @@ from frontend import live_complaint, wake
 from frontend.api_client import (
     WAKE_CONNECT_TIMEOUT_SECONDS, WAKE_READ_TIMEOUT_SECONDS,
     BackendConnectionError, FrontendError, MAX_COMPLAINT_LENGTH, ResolveResult,
-    check_backend_readiness, resolve_complaint,
+    check_backend_readiness, get_api_base_url, resolve_complaint,
 )
 
 RETRY_INTERVAL_SECONDS = 5
@@ -29,18 +29,31 @@ def launch_wake_request(now: float) -> None:
     if remaining <= WAKE_CONNECT_TIMEOUT_SECONDS:
         return
     read_timeout = min(WAKE_READ_TIMEOUT_SECONDS, remaining - WAKE_CONNECT_TIMEOUT_SECONDS)
-    st.session_state.backend_wake_future = wake.launch_backend_wake(read_timeout=read_timeout)
+    try:
+        st.session_state.backend_wake_future = wake.launch_backend_wake(read_timeout=read_timeout)
+    except Exception as exc:
+        logger.error("FRONTEND_WAKE_WORKER_EXCEPTION=%s", type(exc).__name__)
+        st.session_state.backend_state = "unavailable"
+        return
     st.session_state.backend_wake_started_at = now
 
 
 def start_backend_check() -> None:
     """Start or reuse one bounded /health wake, then verify /ready."""
+    logger.warning("FRONTEND_WAKE_INIT")
     pending = st.session_state.get("backend_wake_future")
     pending_started_at = st.session_state.get("backend_wake_started_at")
     st.session_state.backend_state = "starting"
     st.session_state.backend_stage = "wake"
     st.session_state.backend_started_at = monotonic()
     st.session_state.backend_next_check_at = 0.0
+    try:
+        get_api_base_url()
+    except FrontendError:
+        logger.error("FRONTEND_WAKE_CONFIG_ERROR")
+        st.session_state.backend_state = "unavailable"
+        st.session_state.backend_wake_future = None
+        return
     if pending is not None and not pending.done():
         st.session_state.backend_wake_future = pending
         st.session_state.backend_wake_started_at = pending_started_at
@@ -56,7 +69,7 @@ def poll_backend_status() -> bool:
     now = monotonic()
     if now - st.session_state.backend_started_at >= RETRY_WINDOW_SECONDS:
         st.session_state.backend_state = "unavailable"
-        logger.warning("STARTUP_WINDOW_EXPIRED")
+        logger.warning("FRONTEND_WAKE_STARTUP_WINDOW_EXPIRED")
         return True
     if st.session_state.backend_stage == "wake":
         future = st.session_state.backend_wake_future
@@ -80,21 +93,22 @@ def poll_backend_status() -> bool:
                 launch_wake_request(now)
             return False
         st.session_state.backend_stage = "ready"
-        logger.warning("HEALTH_CONFIRMED")
+        logger.warning("FRONTEND_WAKE_HEALTH_OK")
     elif now < st.session_state.backend_next_check_at:
         return False
+    logger.warning("FRONTEND_WAKE_READY_CHECK")
     state = check_backend_readiness()
+    logger.warning("FRONTEND_WAKE_READY_STATUS=%s", state)
     if state == "ready":
-        logger.warning("READINESS_SUCCEEDED")
+        logger.warning("FRONTEND_WAKE_READY_OK")
         st.session_state.backend_state = state
         return True
     if state == "unavailable":
         st.session_state.backend_state = state
         return True
-    logger.warning("READINESS_PENDING")
     if monotonic() - st.session_state.backend_started_at >= RETRY_WINDOW_SECONDS:
         st.session_state.backend_state = "unavailable"
-        logger.warning("STARTUP_WINDOW_EXPIRED")
+        logger.warning("FRONTEND_WAKE_STARTUP_WINDOW_EXPIRED")
         return True
     st.session_state.backend_next_check_at = now + RETRY_INTERVAL_SECONDS
     return False
