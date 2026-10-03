@@ -11,6 +11,7 @@ DEFAULT_API_BASE_URL = "http://127.0.0.1:8000"
 REQUEST_TIMEOUT = httpx.Timeout(connect=5.0, read=90.0, write=10.0, pool=5.0)
 READINESS_TIMEOUT = httpx.Timeout(connect=2.0, read=3.0, write=2.0, pool=2.0)
 ReadinessState = Literal["ready", "starting", "unavailable"]
+HealthState = Literal["alive", "starting", "unavailable"]
 
 
 class FrontendError(Exception):
@@ -126,8 +127,29 @@ def get_api_base_url() -> str:
     return str(url).rstrip("/")
 
 
+def check_backend_health(*, transport: httpx.BaseTransport | None = None) -> HealthState:
+    """Wake a sleeping backend with its lightweight liveness route."""
+    try:
+        url = get_api_base_url() + "/health"
+    except FrontendError:
+        return "unavailable"
+    try:
+        with httpx.Client(timeout=READINESS_TIMEOUT, transport=transport, follow_redirects=False) as client:
+            response = client.get(url)
+    except (httpx.TimeoutException, httpx.RequestError):
+        return "starting"
+    if response.status_code in (401, 403, 404, 405):
+        return "unavailable"
+    if response.status_code != 200:
+        return "starting"
+    try:
+        return "alive" if response.json().get("status") == "ok" else "starting"
+    except (ValueError, AttributeError):
+        return "starting"
+
+
 def check_backend_readiness(*, transport: httpx.BaseTransport | None = None) -> ReadinessState:
-    """Use /ready only; transient connection and server failures may be cold starts."""
+    """Check processing dependencies only after /health confirms liveness."""
     try:
         url = get_api_base_url() + "/ready"
     except FrontendError:
@@ -144,6 +166,8 @@ def check_backend_readiness(*, transport: httpx.BaseTransport | None = None) -> 
     try:
         details = response.json()
         if not isinstance(details, dict):
+            return "starting"
+        if details.get("gemini_configured") is False:
             return "unavailable"
         if response.status_code == 200:
             return "ready" if (
@@ -151,12 +175,10 @@ def check_backend_readiness(*, transport: httpx.BaseTransport | None = None) -> 
                 and all(details.get(field) is True for field in (
                     "database", "search_index", "embedding_model", "gemini_configured"
                 ))
-            ) else "unavailable"
-        if details.get("gemini_configured") is False:
-            return "unavailable"
+            ) else "starting"
         return "starting"
     except ValueError:
-        return "unavailable" if response.status_code == 200 else "starting"
+        return "starting"
 
 
 def resolve_complaint(

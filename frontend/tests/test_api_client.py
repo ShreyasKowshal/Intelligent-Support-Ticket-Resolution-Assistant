@@ -6,7 +6,8 @@ import httpx
 import pytest
 
 from frontend.api_client import (
-    BackendConnectionError, FrontendError, MAX_COMPLAINT_LENGTH, check_backend_readiness,
+    BackendConnectionError, FrontendError, MAX_COMPLAINT_LENGTH, check_backend_health,
+    check_backend_readiness,
     get_api_base_url, resolve_complaint,
 )
 from backend.app.config import MAX_COMPLAINT_LENGTH as BACKEND_COMPLAINT_LENGTH
@@ -61,6 +62,38 @@ def ready_body(**changes):
     }
 
 
+def test_health_wake_uses_api_base_url_and_lightweight_route(monkeypatch):
+    monkeypatch.setenv("API_BASE_URL", "http://localhost:8765/")
+    calls = []
+
+    def handler(request):
+        calls.append((request.method, str(request.url)))
+        return httpx.Response(200, json={"status": "ok"})
+
+    assert check_backend_health(transport=httpx.MockTransport(handler)) == "alive"
+    assert calls == [("GET", "http://localhost:8765/health")]
+
+
+@pytest.mark.parametrize("failure", [
+    httpx.ConnectTimeout("private"), httpx.ReadTimeout("private"),
+    httpx.ConnectError("private"),
+])
+def test_health_network_failures_are_temporary(failure):
+    transport = httpx.MockTransport(lambda _request: (_ for _ in ()).throw(failure))
+    assert check_backend_health(transport=transport) == "starting"
+
+
+@pytest.mark.parametrize("status", [502, 503, 504])
+def test_health_gateway_failures_are_temporary(status):
+    assert check_backend_health(transport=transport_for(status, {})) == "starting"
+
+
+def test_health_wrong_route_or_invalid_configuration_is_unavailable(monkeypatch):
+    assert check_backend_health(transport=transport_for(404, {})) == "unavailable"
+    monkeypatch.setenv("API_BASE_URL", "https://private:secret@example.test")
+    assert check_backend_health() == "unavailable"
+
+
 def test_readiness_uses_only_ready_and_requires_all_dependencies(monkeypatch):
     monkeypatch.setenv("API_BASE_URL", "http://localhost:8765/")
     calls = []
@@ -73,7 +106,7 @@ def test_readiness_uses_only_ready_and_requires_all_dependencies(monkeypatch):
     assert calls == [("GET", "http://localhost:8765/ready")]
     assert check_backend_readiness(transport=transport_for(
         200, ready_body(search_index=False)
-    )) == "unavailable"
+    )) == "starting"
 
 
 @pytest.mark.parametrize("failure", [httpx.ReadTimeout("private"), httpx.ConnectError("private")])
@@ -90,6 +123,11 @@ def test_readiness_distinguishes_startup_from_persistent_failure():
         503, ready_body(status="not_ready", gemini_configured=False)
     )) == "unavailable"
     assert check_backend_readiness(transport=transport_for(404, {})) == "unavailable"
+
+
+@pytest.mark.parametrize("status", [502, 503, 504])
+def test_readiness_gateway_failures_are_temporary(status):
+    assert check_backend_readiness(transport=transport_for(status, {})) == "starting"
 
 
 def test_resolve_calls_only_backend_route_and_parses_response(monkeypatch):

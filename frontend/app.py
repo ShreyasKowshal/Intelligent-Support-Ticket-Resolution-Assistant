@@ -8,11 +8,11 @@ import streamlit as st
 from frontend import live_complaint
 from frontend.api_client import (
     BackendConnectionError, FrontendError, MAX_COMPLAINT_LENGTH, ResolveResult,
-    check_backend_readiness, resolve_complaint,
+    check_backend_health, check_backend_readiness, resolve_complaint,
 )
 
 RETRY_INTERVAL_SECONDS = 5
-RETRY_WINDOW_SECONDS = 70
+RETRY_WINDOW_SECONDS = 120
 STATUS_LABELS = {
     "starting": ("🟡 Starting backend...", "starting"),
     "ready": ("🟢 Backend ready", "ready"),
@@ -21,19 +21,32 @@ STATUS_LABELS = {
 
 
 def start_backend_check() -> None:
-    """Start one bounded readiness window without changing the complaint or result."""
+    """Start a bounded /health wake and /ready verification window."""
     st.session_state.backend_state = "starting"
+    st.session_state.backend_stage = "wake"
     st.session_state.backend_started_at = monotonic()
     st.session_state.backend_next_check_at = 0.0
 
 
 def poll_backend_status() -> bool:
-    """Return whether readiness moved into a terminal state on this poll."""
+    """Return whether the two-stage check reached ready or unavailable."""
     if st.session_state.backend_state != "starting":
         return False
     now = monotonic()
+    if now - st.session_state.backend_started_at >= RETRY_WINDOW_SECONDS:
+        st.session_state.backend_state = "unavailable"
+        return True
     if now < st.session_state.backend_next_check_at:
         return False
+    if st.session_state.backend_stage == "wake":
+        health = check_backend_health()
+        if health == "unavailable":
+            st.session_state.backend_state = "unavailable"
+            return True
+        if health == "starting":
+            st.session_state.backend_next_check_at = now + RETRY_INTERVAL_SECONDS
+            return False
+        st.session_state.backend_stage = "ready"
     state = check_backend_readiness()
     if state == "ready" or state == "unavailable":
         st.session_state.backend_state = state
@@ -41,7 +54,7 @@ def poll_backend_status() -> bool:
     if monotonic() - st.session_state.backend_started_at >= RETRY_WINDOW_SECONDS:
         st.session_state.backend_state = "unavailable"
         return True
-    st.session_state.backend_next_check_at = monotonic() + RETRY_INTERVAL_SECONDS
+    st.session_state.backend_next_check_at = now + RETRY_INTERVAL_SECONDS
     return False
 
 
@@ -160,7 +173,7 @@ def main() -> None:
     st.session_state.setdefault("last_submitted_complaint", "")
     st.session_state.setdefault("last_submit_id", None)
     st.session_state.setdefault("submission_ack", 0)
-    if "backend_state" not in st.session_state:
+    if "backend_state" not in st.session_state or "backend_stage" not in st.session_state:
         start_backend_check()
 
     @st.fragment(run_every=RETRY_INTERVAL_SECONDS if st.session_state.backend_state == "starting" else None)
