@@ -1,5 +1,6 @@
 """The frontend's only connection to the support-assistant backend."""
 
+import logging
 import os
 from typing import Literal
 
@@ -10,8 +11,11 @@ from backend.app.config import MAX_COMPLAINT_LENGTH
 DEFAULT_API_BASE_URL = "http://127.0.0.1:8000"
 REQUEST_TIMEOUT = httpx.Timeout(connect=5.0, read=90.0, write=10.0, pool=5.0)
 READINESS_TIMEOUT = httpx.Timeout(connect=2.0, read=3.0, write=2.0, pool=2.0)
+WAKE_CONNECT_TIMEOUT_SECONDS = 5.0
+WAKE_READ_TIMEOUT_SECONDS = 115.0
 ReadinessState = Literal["ready", "starting", "unavailable"]
 HealthState = Literal["alive", "starting", "unavailable"]
+wake_logger = logging.getLogger("frontend.wake")
 
 
 class FrontendError(Exception):
@@ -127,23 +131,39 @@ def get_api_base_url() -> str:
     return str(url).rstrip("/")
 
 
-def check_backend_health(*, transport: httpx.BaseTransport | None = None) -> HealthState:
+def check_backend_health(
+    *, transport: httpx.BaseTransport | None = None,
+    read_timeout: float = WAKE_READ_TIMEOUT_SECONDS,
+) -> HealthState:
     """Wake a sleeping backend with its lightweight liveness route."""
     try:
         url = get_api_base_url() + "/health"
     except FrontendError:
+        wake_logger.warning("WAKE_REQUEST_CONFIGURATION_ERROR")
         return "unavailable"
     try:
-        with httpx.Client(timeout=READINESS_TIMEOUT, transport=transport, follow_redirects=False) as client:
+        timeout = httpx.Timeout(
+            connect=WAKE_CONNECT_TIMEOUT_SECONDS, read=read_timeout,
+            write=5.0, pool=5.0,
+        )
+        with httpx.Client(timeout=timeout, transport=transport, follow_redirects=False) as client:
             response = client.get(url)
-    except (httpx.TimeoutException, httpx.RequestError):
+    except httpx.TimeoutException:
+        wake_logger.warning("WAKE_REQUEST_TIMEOUT")
         return "starting"
+    except httpx.RequestError:
+        wake_logger.warning("WAKE_REQUEST_CONNECTION_ERROR")
+        return "starting"
+    wake_logger.warning("WAKE_REQUEST_HTTP_STATUS status=%d", response.status_code)
     if response.status_code in (401, 403, 404, 405):
         return "unavailable"
     if response.status_code != 200:
         return "starting"
     try:
-        return "alive" if response.json().get("status") == "ok" else "starting"
+        if response.json().get("status") == "ok":
+            wake_logger.warning("WAKE_REQUEST_SUCCEEDED")
+            return "alive"
+        return "starting"
     except (ValueError, AttributeError):
         return "starting"
 

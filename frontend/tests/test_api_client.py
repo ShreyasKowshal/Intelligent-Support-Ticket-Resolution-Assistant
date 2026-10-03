@@ -7,7 +7,7 @@ import pytest
 
 from frontend.api_client import (
     BackendConnectionError, FrontendError, MAX_COMPLAINT_LENGTH, check_backend_health,
-    check_backend_readiness,
+    check_backend_readiness, WAKE_READ_TIMEOUT_SECONDS,
     get_api_base_url, resolve_complaint,
 )
 from backend.app.config import MAX_COMPLAINT_LENGTH as BACKEND_COMPLAINT_LENGTH
@@ -72,6 +72,26 @@ def test_health_wake_uses_api_base_url_and_lightweight_route(monkeypatch):
 
     assert check_backend_health(transport=httpx.MockTransport(handler)) == "alive"
     assert calls == [("GET", "http://localhost:8765/health")]
+
+
+def test_health_wake_uses_long_read_timeout_without_changing_ready_timeout(monkeypatch):
+    monkeypatch.setenv("API_BASE_URL", "http://localhost:8765")
+    observed = []
+
+    def handler(request):
+        observed.append((request.url.path, request.extensions["timeout"]))
+        if request.url.path == "/health":
+            return httpx.Response(200, json={"status": "ok"})
+        return httpx.Response(200, json=ready_body())
+
+    transport = httpx.MockTransport(handler)
+    assert check_backend_health(transport=transport) == "alive"
+    assert check_backend_readiness(transport=transport) == "ready"
+    assert observed[0][0] == "/health"
+    assert observed[0][1]["read"] == WAKE_READ_TIMEOUT_SECONDS == 115.0
+    assert observed[0][1]["connect"] == 5.0
+    assert observed[1][0] == "/ready"
+    assert observed[1][1]["read"] == 3.0
 
 
 @pytest.mark.parametrize("failure", [
