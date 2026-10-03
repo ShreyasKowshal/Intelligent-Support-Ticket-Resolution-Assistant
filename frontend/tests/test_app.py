@@ -16,6 +16,7 @@ from sqlalchemy.engine import URL
 from streamlit.testing.v1 import AppTest
 
 import frontend.api_client as api_client
+from frontend import live_complaint
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "backend"))
@@ -147,6 +148,24 @@ def complaint_value(page):
     return page.text_area[0].value
 
 
+@pytest.fixture(autouse=True)
+def app_test_input(monkeypatch):
+    """AppTest has no browser event loop for Components v2; exercise the Python page."""
+    def render(*, ready, initial_value, ack):
+        complaint = st.text_area("Customer complaint", key="complaint")
+        st.caption(f"{len(complaint)} / {api_client.MAX_COMPLAINT_LENGTH} characters")
+        if len(complaint) > api_client.MAX_COMPLAINT_LENGTH:
+            st.error("Complaint must be 3000 characters or fewer.")
+        if st.button(
+            "Analyze & Resolve", key="submit_complaint", type="primary",
+            disabled=not ready or not complaint.strip() or len(complaint) > api_client.MAX_COMPLAINT_LENGTH,
+        ):
+            return {"complaint": complaint, "id": f"test-{time.monotonic_ns()}"}
+        return None
+
+    monkeypatch.setattr(live_complaint, "complaint_input", render)
+
+
 @pytest.mark.parametrize(
     ("state", "label", "disabled"),
     [
@@ -195,11 +214,11 @@ def test_failed_first_check_is_yellow_and_submission_is_disabled(monkeypatch):
     assert status_is(page, "🟡 Starting backend...")
     assert page.get_by_key("submit_complaint").disabled
     assert calls == ["ready"]
-    page.run(timeout=30)  # A typing rerun must not cause another early poll.
+    page.run(timeout=30)  # An unrelated rerun must not cause another early poll.
     assert calls == ["ready"]
 
 
-def test_editing_uses_native_widget_without_explicit_rerun_or_resolve(local_api, monkeypatch):
+def test_editing_does_not_explicitly_rerun_or_resolve(local_api, monkeypatch):
     page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
     assert status_is(page, "🟢 Backend ready")
     monkeypatch.setattr(st, "rerun", lambda: pytest.fail("editing explicitly reran the page"))
@@ -349,7 +368,7 @@ def test_complaint_counter_and_input_validation(local_api):
     assert page.get_by_key("submit_complaint").disabled
 
 
-def test_counter_uses_committed_textarea_value_when_editing_and_clearing(local_api):
+def test_app_test_input_validation_when_editing_and_clearing(local_api):
     page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
     set_complaint(page, "h")
     assert any("1 / 3000 characters" in item.value for item in page.caption)
@@ -371,9 +390,10 @@ def test_non_actionable_input_shows_clarification_without_evidence(local_api):
     assert not any(item.value.startswith("Citations: ") for item in page.caption)
 
 
-def test_editing_complaint_clears_previous_recommendation(local_api):
+def test_new_submission_replaces_previous_recommendation(local_api):
     page = submit(COMPLAINTS[0][0])
     assert page.header
     set_complaint(page, COMPLAINTS[1][0])
-    assert not page.header
+    page.get_by_key("submit_complaint").click().run(timeout=30)
+    assert page.metric[0].value == COMPLAINTS[1][1]
     assert complaint_value(page) == COMPLAINTS[1][0]

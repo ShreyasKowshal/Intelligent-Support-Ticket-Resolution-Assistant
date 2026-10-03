@@ -5,6 +5,7 @@ from time import monotonic
 
 import streamlit as st
 
+from frontend import live_complaint
 from frontend.api_client import (
     BackendConnectionError, FrontendError, MAX_COMPLAINT_LENGTH, ResolveResult,
     check_backend_readiness, resolve_complaint,
@@ -156,6 +157,9 @@ def main() -> None:
     st.session_state.setdefault("result", None)
     st.session_state.setdefault("error_message", None)
     st.session_state.setdefault("result_input_fingerprint", None)
+    st.session_state.setdefault("last_submitted_complaint", "")
+    st.session_state.setdefault("last_submit_id", None)
+    st.session_state.setdefault("submission_ack", 0)
     if "backend_state" not in st.session_state:
         start_backend_check()
 
@@ -171,37 +175,34 @@ def main() -> None:
 
     with st.container(border=True):
         st.subheader("Customer complaint")
-        complaint = st.text_area(
-            "Customer complaint", key="complaint", height=170,
-            placeholder="Paste the customer's raw telecom complaint here...",
-            on_change=clear_previous_result,
-            label_visibility="collapsed",
-            help="The character count and submit button update when you leave this field or press Ctrl+Enter.",
+        submission = live_complaint.complaint_input(
+            ready=st.session_state.backend_state == "ready",
+            initial_value=st.session_state.last_submitted_complaint,
+            ack=st.session_state.submission_ack,
         )
-        if (st.session_state.result is not None
-                and st.session_state.result_input_fingerprint != complaint_fingerprint(complaint)):
+        if isinstance(submission, dict) and submission.get("id") != st.session_state.last_submit_id:
+            st.session_state.last_submit_id = submission.get("id")
+            complaint = submission.get("complaint")
             clear_previous_result()
-        st.caption(f"{len(complaint)} / {MAX_COMPLAINT_LENGTH} characters")
-        if len(complaint) > MAX_COMPLAINT_LENGTH:
-            st.error(f"Complaint must be {MAX_COMPLAINT_LENGTH} characters or fewer.")
-        if st.button(
-            "Analyze & Resolve", key="submit_complaint", type="primary",
-            disabled=(st.session_state.backend_state != "ready"
-                      or not complaint.strip() or len(complaint) > MAX_COMPLAINT_LENGTH),
-            use_container_width=True,
-        ):
-            st.session_state.result = None
-            st.session_state.error_message = None
             try:
+                if st.session_state.backend_state != "ready":
+                    raise FrontendError("Backend is starting. Please wait until the status changes to Ready.")
+                if not isinstance(complaint, str) or not complaint.strip():
+                    raise FrontendError("Enter a customer complaint before continuing.")
+                if len(complaint) > MAX_COMPLAINT_LENGTH:
+                    raise FrontendError(f"Complaint must be {MAX_COMPLAINT_LENGTH} characters or fewer.")
+                st.session_state.last_submitted_complaint = complaint
                 with st.spinner("Analyzing the complaint and checking approved evidence..."):
                     st.session_state.result = resolve_complaint(complaint)
                     st.session_state.result_input_fingerprint = complaint_fingerprint(complaint)
             except BackendConnectionError as exc:
                 st.session_state.error_message = str(exc)
                 start_backend_check()
-                st.rerun()
             except FrontendError as exc:
                 st.session_state.error_message = str(exc)
+            finally:
+                st.session_state.submission_ack += 1
+                st.rerun()
 
     if st.session_state.error_message:
         st.error(st.session_state.error_message)
