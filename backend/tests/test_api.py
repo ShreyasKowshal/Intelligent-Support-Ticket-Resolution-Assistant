@@ -347,6 +347,151 @@ def test_telecom_account_access_still_retrieves(api, complaint):
     assert calls == [1]
 
 
+@pytest.mark.parametrize("complaint, category, product", [
+    ("My desktop password has expired.", "account_access", "account_services"),
+    ("I cannot sign into my local Windows profile.", "other", "other"),
+    ("My computer account is locked.", "account_access", "account_services"),
+    ("My Windows PIN is not working.", "other", "other"),
+    ("I forgot my Mac login password.", "account_access", "account_services"),
+])
+def test_local_computer_access_skips_telecom_retrieval(api, complaint, category, product):
+    client, service, provider = api
+    provider.result = {
+        **ANALYSIS, "category": category, "product": product,
+        "intent": "Restore local computer access",
+        "rationale": "This is a local operating-system sign-in issue.",
+    }
+    service.search.load_or_build = lambda: pytest.fail("FAISS must be skipped")
+    provider.generate_resolution = lambda *_args: pytest.fail("RAG must be skipped")
+    body = client.post("/resolve", json={"complaint": complaint}).json()
+    assert body["analysis"] and body["non_actionable"] is True
+    assert body["tickets"] == body["kb_articles"] == body["source_ids"] == []
+    assert body["resolution"]["resolution_steps"] == body["resolution"]["sources_used"] == []
+    assert body["insufficient_evidence"] is True
+    assert "telecom service problem" in body["resolution"]["escalation_recommendation"]
+
+
+@pytest.mark.parametrize("complaint", [
+    "My telecom account password has expired.",
+    "I cannot log into my broadband customer portal.",
+    "My mobile provider account is locked.",
+    "I forgot my telecom app password.",
+])
+def test_telecom_account_access_still_retrieves_with_local_access_guard(api, complaint):
+    client, service, provider = api
+    provider.result = {
+        **ANALYSIS, "category": "account_access", "product": "account_services",
+        "intent": "Restore customer account access",
+        "rationale": "A telecom account access problem is reported.",
+    }
+    calls = []
+    original = service.search.search
+
+    def counted(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    service.search.search = counted
+    body = client.post("/resolve", json={"complaint": complaint}).json()
+    assert body["non_actionable"] is False
+    assert calls == [1]
+
+
+@pytest.mark.parametrize("complaint", [
+    "I want to learn how broadband technology works.",
+    "Explain how 5G works.",
+    "What is a SIM card?",
+    "How does mobile roaming work?",
+    "Tell me about broadband networks.",
+])
+def test_educational_query_skips_retrieval_even_with_telecom_analysis(api, complaint):
+    client, service, provider = api
+    provider.result = {
+        **ANALYSIS, "category": "broadband_connectivity", "product": "broadband",
+        "intent": "Answer an educational question about telecom technology",
+        "rationale": "This is general knowledge, not a customer service complaint.",
+    }
+    service.search.load_or_build = lambda: pytest.fail("FAISS must be skipped")
+    provider.generate_resolution = lambda *_args: pytest.fail("RAG must be skipped")
+    body = client.post("/resolve", json={"complaint": complaint}).json()
+    assert body["analysis"] and body["non_actionable"] is True
+    assert body["tickets"] == body["kb_articles"] == body["source_ids"] == []
+    assert body["resolution"]["resolution_steps"] == body["resolution"]["sources_used"] == []
+    assert body["insufficient_evidence"] is True
+
+
+@pytest.mark.parametrize("complaint", [
+    "My broadband is not working.",
+    "My 5G data is not working.",
+    "My SIM is not activating.",
+    "My roaming service is not working.",
+])
+def test_explicit_service_fault_proceeds_despite_informational_analysis(api, complaint):
+    client, service, provider = api
+    provider.result = {
+        **ANALYSIS, "category": "other", "product": "other", "needs_review": True,
+        "intent": "Answer an informational question",
+        "rationale": "General information may be requested; no service problem was classified.",
+    }
+    calls = []
+    original = service.search.search
+
+    def counted(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    service.search.search = counted
+    body = client.post("/resolve", json={"complaint": complaint}).json()
+    assert body["non_actionable"] is False
+    assert calls == [1]
+
+
+@pytest.mark.parametrize("complaint", [
+    "I saw a mobile tower near my house.",
+    "I bought a new phone yesterday.",
+    "There is a telecom shop near my office.",
+    "I read about 5G today.",
+    "My laptop has a SIM card slot.",
+])
+def test_casual_telecom_statement_skips_retrieval(api, complaint):
+    client, service, provider = api
+    provider.result = {
+        **ANALYSIS, "category": "mobile_network", "product": "mobile_postpaid",
+        "intent": "Record a casual observation",
+        "rationale": "No service problem or support complaint is reported.",
+    }
+    service.search.load_or_build = lambda: pytest.fail("FAISS must be skipped")
+    provider.generate_resolution = lambda *_args: pytest.fail("RAG must be skipped")
+    body = client.post("/resolve", json={"complaint": complaint}).json()
+    assert body["analysis"] and body["non_actionable"] is True
+    assert body["tickets"] == body["kb_articles"] == body["source_ids"] == []
+    assert body["resolution"]["resolution_steps"] == body["resolution"]["sources_used"] == []
+    assert body["insufficient_evidence"] is True
+
+
+@pytest.mark.parametrize("complaint", [
+    "I have no network signal.", "My mobile data is slow.",
+])
+def test_explicit_fault_proceeds_despite_casual_analysis(api, complaint):
+    client, service, provider = api
+    provider.result = {
+        **ANALYSIS, "category": "other", "product": "other", "needs_review": True,
+        "intent": "Record a casual observation",
+        "rationale": "No service problem was classified.",
+    }
+    calls = []
+    original = service.search.search
+
+    def counted(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    service.search.search = counted
+    body = client.post("/resolve", json={"complaint": complaint}).json()
+    assert body["non_actionable"] is False
+    assert calls == [1]
+
+
 @pytest.mark.parametrize("complaint", [
     "My mobile data is not working", "My phone has no network signal",
     "My phone has no mobile network",

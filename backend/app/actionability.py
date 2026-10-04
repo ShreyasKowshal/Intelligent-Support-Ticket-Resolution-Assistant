@@ -33,9 +33,10 @@ VAGUE_REASON = re.compile(
     r"|not enough (?:detail|information)|(?:does not|doesn't) specify)\b",
     re.IGNORECASE,
 )
-LOCAL_DEVICE = frozenset({"computer", "laptop", "pc", "windows"})
-LOCAL_ACCESS = frozenset({"login", "logon", "password", "signin"})
-LOG_IN = re.compile(r"\blog(?:ging)?\s+in(?:to)?\b", re.IGNORECASE)
+LOCAL_DEVICE = frozenset({"computer", "desktop", "laptop", "mac", "macos", "pc", "windows"})
+LOCAL_ACCESS = frozenset({"login", "logon", "password", "pin", "profile", "signin"})
+LOG_IN = re.compile(r"\b(?:log|sign)(?:ging|ing)?\s+in(?:to)?\b", re.IGNORECASE)
+LOCAL_ACCOUNT_LOCK = re.compile(r"\b(?:account|profile)\s+(?:is\s+)?locked\b", re.IGNORECASE)
 TELECOM_ACCOUNT = re.compile(
     r"\b(?:telecom|carrier|(?:mobile|cellular) provider|customer portal)\b",
     re.IGNORECASE,
@@ -47,6 +48,13 @@ OUT_OF_SCOPE_REASON = re.compile(
     re.IGNORECASE,
 )
 DEVICE_REASON = re.compile(r"\b(?:hardware|software|physical damage|device repair)\b", re.IGNORECASE)
+NO_INCIDENT_REASON = re.compile(
+    r"\b(?:educational|informational|general knowledge|casual|observation"
+    r"|no (?:telecom |service |customer )?(?:issue|problem|fault|complaint)"
+    r"|not (?:a |an )?(?:complaint|service issue|support incident)"
+    r"|not (?:reporting|describing) (?:a |an )?(?:telecom |service )?(?:issue|problem|fault))\b",
+    re.IGNORECASE,
+)
 
 
 def is_non_actionable_complaint(complaint: str, analysis: ComplaintAnalysis) -> bool:
@@ -70,13 +78,16 @@ def is_non_actionable_complaint(complaint: str, analysis: ComplaintAnalysis) -> 
     if len(words) >= 2 and tokens <= KEYWORD_ONLY_WORDS:
         return True
     has_telecom_service = bool(tokens & TELECOM_SERVICE_WORDS or TEXT_MESSAGE.search(text))
+    describes_telecom_problem = bool(tokens & DOMAIN_WORDS and tokens & PROBLEM_WORDS)
     if (
-        analysis.category in {"account_access", "other"}
-        and tokens & LOCAL_DEVICE
-        and (tokens & LOCAL_ACCESS or LOG_IN.search(text))
+        tokens & LOCAL_DEVICE
+        and (tokens & LOCAL_ACCESS or LOG_IN.search(text) or LOCAL_ACCOUNT_LOCK.search(text))
         and not has_telecom_service
         and not TELECOM_ACCOUNT.search(text)
     ):
+        return True
+    reasoning = f"{analysis.intent} {analysis.rationale}"
+    if not describes_telecom_problem and NO_INCIDENT_REASON.search(reasoning):
         return True
     if (
         analysis.category == "other"
@@ -85,14 +96,12 @@ def is_non_actionable_complaint(complaint: str, analysis: ComplaintAnalysis) -> 
         and analysis.confidence < 0.60
         and analysis.suggested_category is None
         and not (tokens & SPECIFIC_TELECOM_WORDS or TEXT_MESSAGE.search(text))
-        and VAGUE_REASON.search(f"{analysis.intent} {analysis.rationale}")
+        and VAGUE_REASON.search(reasoning)
     ):
         return True
     if analysis.category == "other" and analysis.needs_review and not has_telecom_service:
-        reasoning = f"{analysis.intent} {analysis.rationale}"
         if OUT_OF_SCOPE_REASON.search(reasoning) or DEVICE_REASON.search(reasoning):
             return True
-    describes_telecom_problem = bool(tokens & DOMAIN_WORDS and tokens & PROBLEM_WORDS)
     if describes_telecom_problem:
         return False
     return (
