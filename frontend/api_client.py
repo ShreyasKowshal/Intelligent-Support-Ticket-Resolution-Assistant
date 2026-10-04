@@ -1,6 +1,5 @@
 """The frontend's only connection to the support-assistant backend."""
 
-import logging
 import os
 from typing import Literal
 
@@ -11,11 +10,7 @@ from backend.app.config import MAX_COMPLAINT_LENGTH
 DEFAULT_API_BASE_URL = "http://127.0.0.1:8000"
 REQUEST_TIMEOUT = httpx.Timeout(connect=5.0, read=90.0, write=10.0, pool=5.0)
 READINESS_TIMEOUT = httpx.Timeout(connect=2.0, read=3.0, write=2.0, pool=2.0)
-WAKE_CONNECT_TIMEOUT_SECONDS = 5.0
-WAKE_READ_TIMEOUT_SECONDS = 115.0
 ReadinessState = Literal["ready", "starting", "unavailable"]
-HealthState = Literal["alive", "starting", "unavailable"]
-wake_logger = logging.getLogger("frontend.wake")
 
 
 class FrontendError(Exception):
@@ -139,96 +134,17 @@ def get_api_base_url() -> str:
     return str(url).rstrip("/")
 
 
-def check_backend_health(
-    *, transport: httpx.BaseTransport | None = None,
-    read_timeout: float = WAKE_READ_TIMEOUT_SECONDS,
-) -> HealthState:
-    """Wake a sleeping backend with its lightweight liveness route."""
-    try:
-        base_url = get_api_base_url()
-    except FrontendError:
-        wake_logger.error("FRONTEND_WAKE_CONFIG_ERROR")
-        return "unavailable"
-    wake_logger.warning("FRONTEND_WAKE_TARGET=%s", httpx.URL(base_url).host)
-    url = base_url + "/health"
-    try:
-        timeout = httpx.Timeout(
-            connect=WAKE_CONNECT_TIMEOUT_SECONDS, read=read_timeout,
-            write=5.0, pool=5.0,
-        )
-        with httpx.Client(timeout=timeout, transport=transport, follow_redirects=False) as client:
-            wake_logger.warning("FRONTEND_WAKE_REQUEST_START")
-            response = client.get(url)
-    except httpx.TimeoutException as exc:
-        wake_logger.warning("FRONTEND_WAKE_REQUEST_TIMEOUT type=%s", type(exc).__name__)
-        return "starting"
-    except httpx.RequestError as exc:
-        wake_logger.warning("FRONTEND_WAKE_REQUEST_EXCEPTION=%s", type(exc).__name__)
-        return "starting"
-    except Exception as exc:
-        wake_logger.error("FRONTEND_WAKE_REQUEST_EXCEPTION=%s", type(exc).__name__)
-        return "unavailable"
-    wake_logger.warning("FRONTEND_WAKE_REQUEST_STATUS=%d", response.status_code)
-    if response.status_code in (401, 403, 404, 405):
-        return "unavailable"
-    if response.status_code != 200:
-        return "starting"
-    try:
-        if response.json().get("status") == "ok":
-            return "alive"
-        return "starting"
-    except (ValueError, AttributeError):
-        return "starting"
-
-
 def check_backend_readiness(*, transport: httpx.BaseTransport | None = None) -> ReadinessState:
     """Check processing dependencies with a short timeout."""
-    return _request_readiness(transport=transport, timeout=READINESS_TIMEOUT, wake=False)
-
-
-def wake_backend_readiness(
-    *, read_timeout: float, transport: httpx.BaseTransport | None = None,
-) -> ReadinessState:
-    """Use the browser-proven /ready route for a bounded cold-start attempt."""
-    timeout = httpx.Timeout(
-        connect=WAKE_CONNECT_TIMEOUT_SECONDS, read=read_timeout,
-        write=5.0, pool=5.0,
-    )
-    return _request_readiness(transport=transport, timeout=timeout, wake=True)
-
-
-def _request_readiness(
-    *, transport: httpx.BaseTransport | None, timeout: httpx.Timeout, wake: bool,
-) -> ReadinessState:
     try:
-        base_url = get_api_base_url()
+        url = get_api_base_url() + "/ready"
     except FrontendError:
-        if wake:
-            wake_logger.error("FRONTEND_WAKE_CONFIG_ERROR")
         return "unavailable"
-    url = base_url + "/ready"
-    if wake:
-        wake_logger.warning("FRONTEND_WAKE_TARGET=%s", httpx.URL(base_url).host)
     try:
-        with httpx.Client(timeout=timeout, transport=transport, follow_redirects=wake) as client:
-            if wake:
-                wake_logger.warning("FRONTEND_WAKE_REQUEST_START route=/ready")
+        with httpx.Client(timeout=READINESS_TIMEOUT, transport=transport, follow_redirects=False) as client:
             response = client.get(url)
-    except httpx.TimeoutException as exc:
-        if wake:
-            wake_logger.warning("FRONTEND_WAKE_REQUEST_TIMEOUT type=%s", type(exc).__name__)
+    except httpx.RequestError:
         return "starting"
-    except httpx.RequestError as exc:
-        if wake:
-            wake_logger.warning("FRONTEND_WAKE_REQUEST_EXCEPTION=%s", type(exc).__name__)
-        return "starting"
-    except Exception as exc:
-        if wake:
-            wake_logger.error("FRONTEND_WAKE_REQUEST_EXCEPTION=%s", type(exc).__name__)
-            return "unavailable"
-        raise
-    if wake:
-        wake_logger.warning("FRONTEND_WAKE_REQUEST_STATUS=%d", response.status_code)
     if response.status_code in (401, 403, 404, 405):
         return "unavailable"
     if response.status_code not in (200, 503):

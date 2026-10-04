@@ -5,7 +5,6 @@ import socket
 import sys
 import threading
 import time
-from concurrent.futures import Future
 from pathlib import Path
 
 import httpx
@@ -17,7 +16,9 @@ from sqlalchemy.engine import URL
 from streamlit.testing.v1 import AppTest
 
 import frontend.api_client as api_client
-from frontend import live_complaint, wake
+from frontend import browser_wake, live_complaint
+
+ORIGINAL_CHECK_BACKEND_READINESS = api_client.check_backend_readiness
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "backend"))
@@ -152,14 +153,8 @@ def complaint_value(page):
 @pytest.fixture(autouse=True)
 def app_test_input(monkeypatch):
     """AppTest has no browser event loop for Components v2; exercise the Python page."""
-    monkeypatch.setattr(api_client, "wake_backend_readiness", lambda **_: "ready")
-
-    def completed_wake(*, deadline, retry_interval):
-        result = Future()
-        result.set_result(api_client.wake_backend_readiness(read_timeout=115.0))
-        return result
-
-    monkeypatch.setattr(wake, "launch_backend_wake", completed_wake)
+    monkeypatch.setattr(api_client, "check_backend_readiness", lambda **_: "ready")
+    monkeypatch.setattr(browser_wake, "trigger_backend_wake", lambda **_: None)
 
     def render(*, ready, initial_value, ack):
         complaint = st.text_area("Customer complaint", key="complaint")
@@ -178,22 +173,13 @@ def app_test_input(monkeypatch):
 
 @pytest.mark.parametrize(
     ("state", "label", "disabled"),
-    [
-        ("ready", "Backend ready", False),
-        ("starting", "Starting backend", True),
-        ("unavailable", "Backend unavailable", True),
-    ],
+    [("ready", "Backend ready", False), ("starting", "Starting backend", True),
+     ("unavailable", "Backend unavailable", True)],
 )
 def test_status_text_is_rendered_for_every_backend_state(monkeypatch, state, label, disabled):
-    if state == "starting":
-        monkeypatch.setattr(wake, "launch_backend_wake", lambda **_: Future())
-    else:
-        monkeypatch.setattr(api_client, "wake_backend_readiness", lambda **_: state)
+    monkeypatch.setattr(api_client, "check_backend_readiness", lambda **_: state)
     page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
-    assert any(
-        "backend-status" in item.value and label in item.value
-        for item in page.markdown
-    )
+    assert any("backend-status" in item.value and label in item.value for item in page.markdown)
     set_complaint(page, "My broadband is down.")
     assert page.get_by_key("submit_complaint").disabled is disabled
 
@@ -201,11 +187,9 @@ def test_status_text_is_rendered_for_every_backend_state(monkeypatch, state, lab
 def test_ready_status_enables_submission_and_does_not_resolve(local_api, monkeypatch):
     calls = []
     original = api_client.resolve_complaint
-
     def counted(*args, **kwargs):
         calls.append(args)
         return original(*args, **kwargs)
-
     monkeypatch.setattr(api_client, "resolve_complaint", counted)
     page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
     assert status_is(page, "🟢 Backend ready")
@@ -214,111 +198,94 @@ def test_ready_status_enables_submission_and_does_not_resolve(local_api, monkeyp
     assert calls == []
 
 
-def test_initial_load_wakes_with_ready_without_resolve(monkeypatch):
-    calls = []
-    monkeypatch.setattr(api_client, "wake_backend_readiness", lambda **_: calls.append("ready") or "ready")
+def test_initial_load_triggers_browser_wake_and_readiness_without_resolve(monkeypatch):
+    wakes, checks = [], []
+    monkeypatch.setattr(browser_wake, "trigger_backend_wake", lambda *, attempt: wakes.append(attempt))
+    monkeypatch.setattr(api_client, "check_backend_readiness", lambda **_: checks.append(1) or "ready")
     monkeypatch.setattr(api_client, "resolve_complaint", lambda *_: pytest.fail("wake called resolve"))
     page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
-    assert calls == ["ready"]
+    assert len(wakes) == 1
+    assert checks == [1]
     assert status_is(page, "🟢 Backend ready")
 
 
-def test_hosted_missing_backend_url_fails_closed_before_worker(monkeypatch, caplog):
+def test_hosted_missing_backend_url_fails_closed(monkeypatch, caplog):
     monkeypatch.setenv("RENDER", "true")
     monkeypatch.delenv("API_BASE_URL", raising=False)
-    monkeypatch.setattr(wake, "launch_backend_wake", lambda **_: pytest.fail("worker launched without URL"))
+    monkeypatch.setattr(browser_wake, "trigger_backend_wake", lambda **_: pytest.fail("wake without URL"))
     page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
     assert status_is(page, "🔴 Backend unavailable")
     assert page.get_by_key("submit_complaint").disabled
-    assert "FRONTEND_WAKE_INIT" in caplog.text
     assert "FRONTEND_WAKE_CONFIG_ERROR" in caplog.text
 
 
-def test_worker_start_failure_cannot_leave_fake_starting_status(monkeypatch, caplog):
-    def failed_start(*, deadline, retry_interval):
-        raise RuntimeError("private internal detail")
-
-    monkeypatch.setattr(wake, "launch_backend_wake", failed_start)
+def test_starting_backend_keeps_one_attempt_during_editing(monkeypatch):
+    wakes, checks = [], []
+    monkeypatch.setattr(browser_wake, "trigger_backend_wake", lambda *, attempt: wakes.append(attempt))
+    monkeypatch.setattr(api_client, "check_backend_readiness", lambda **_: checks.append(1) or "starting")
+    monkeypatch.setattr(api_client, "resolve_complaint", lambda *_: pytest.fail("startup called resolve"))
     page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
-    assert status_is(page, "🔴 Backend unavailable")
-    assert "FRONTEND_WAKE_WORKER_EXCEPTION=RuntimeError" in caplog.text
-    assert "private internal detail" not in caplog.text
-
-
-def test_pending_wake_stays_single_and_does_not_block_complaint_editing(monkeypatch):
-    pending = Future()
-    launches = []
-
-    def launch(*, deadline, retry_interval):
-        launches.append((deadline, retry_interval))
-        return pending
-
-    monkeypatch.setattr(wake, "launch_backend_wake", launch)
-    monkeypatch.setattr(api_client, "resolve_complaint", lambda *_: pytest.fail("wake called resolve"))
-    page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
-    assert status_is(page, "🟡 Starting backend...")
-    assert len(launches) == 1
-    assert launches[0][1] == 5
-    started_at = page.session_state["backend_started_at"]
+    started = page.session_state["backend_started_at"]
+    attempt = page.session_state["backend_wake_attempt"]
     set_complaint(page, "My broadband has a problem.")
-    assert complaint_value(page) == "My broadband has a problem."
+    set_complaint(page, "My broadband was down.")
+    assert complaint_value(page) == "My broadband was down."
     assert page.get_by_key("submit_complaint").disabled
-    assert len(launches) == 1
-    assert page.session_state["backend_started_at"] == started_at
-    pending.set_result("ready")
+    assert page.session_state["backend_started_at"] == started
+    assert page.session_state["backend_wake_attempt"] == attempt
+    assert checks == [1]
+    assert set(wakes) == {attempt}
+
+
+@pytest.mark.parametrize("status", [502, 503, 504])
+def test_gateway_failures_stay_yellow(monkeypatch, status):
+    transport = api_client.httpx.MockTransport(lambda _: api_client.httpx.Response(status))
+    check = ORIGINAL_CHECK_BACKEND_READINESS
+    monkeypatch.setattr(api_client, "check_backend_readiness",
+                        lambda **_: check(transport=transport))
+    page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
+    assert status_is(page, "🟡 Starting backend...")
+    assert page.get_by_key("submit_complaint").disabled
+
+
+def test_pending_then_ready_preserves_complaint(monkeypatch):
+    state = {"value": "starting"}
+    wakes = []
+    monkeypatch.setattr(api_client, "check_backend_readiness", lambda **_: state["value"])
+    monkeypatch.setattr(browser_wake, "trigger_backend_wake", lambda *, attempt: wakes.append(attempt))
+    page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
+    set_complaint(page, "My broadband is down.")
+    assert status_is(page, "🟡 Starting backend...")
+    state["value"] = "ready"
+    page.session_state["backend_next_check_at"] = 0.0
     page.run(timeout=30)
-    assert len(launches) == 1
     assert status_is(page, "🟢 Backend ready")
     assert not page.get_by_key("submit_complaint").disabled
-    assert complaint_value(page) == "My broadband has a problem."
+    assert complaint_value(page) == "My broadband is down."
+    assert len(set(wakes)) == 1
 
 
-def test_sleeping_backend_wakes_then_becomes_ready_without_manual_retry(monkeypatch):
-    pending = Future()
-    launches = []
-    monkeypatch.setattr(wake, "launch_backend_wake", lambda **kwargs: launches.append(kwargs) or pending)
-    monkeypatch.setattr(api_client, "resolve_complaint", lambda *_: pytest.fail("wake called resolve"))
+def test_window_expires_red_and_retry_refreshes_wake_attempt(monkeypatch):
+    state = {"value": "starting"}
+    wakes = []
+    monkeypatch.setattr(api_client, "check_backend_readiness", lambda **_: state["value"])
+    monkeypatch.setattr(browser_wake, "trigger_backend_wake", lambda *, attempt: wakes.append(attempt))
     page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
-    started_at = page.session_state["backend_started_at"]
-    assert len(launches) == 1
-    assert status_is(page, "🟡 Starting backend...")
-    set_complaint(page, "My broadband has a problem.")
-    page.run(timeout=30)
-    assert len(launches) == 1
-    assert page.session_state["backend_started_at"] == started_at
-    pending.set_result("ready")
-    page.run(timeout=30)
-    assert len(launches) == 1
-    assert status_is(page, "🟢 Backend ready")
-    assert not page.get_by_key("submit_complaint").disabled
-    assert complaint_value(page) == "My broadband has a problem."
-
-
-def test_wake_remains_yellow_until_full_window_expires(monkeypatch):
-    pending = Future()
-    launches = []
-    monkeypatch.setattr(wake, "launch_backend_wake", lambda **kwargs: launches.append(kwargs) or pending)
-    page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
-    page.session_state["backend_started_at"] = time.monotonic() - 179
-    page.run(timeout=30)
-    assert status_is(page, "🟡 Starting backend...")
+    first_attempt = page.session_state["backend_wake_attempt"]
+    set_complaint(page, "My broadband is down.")
     page.session_state["backend_started_at"] = time.monotonic() - 181
     page.run(timeout=30)
     assert status_is(page, "🔴 Backend unavailable")
-    assert len(launches) == 1
-
-
-def test_failed_first_check_is_yellow_and_submission_is_disabled(monkeypatch):
-    pending = Future()
-    launches = []
-    monkeypatch.setattr(wake, "launch_backend_wake", lambda **kwargs: launches.append(kwargs) or pending)
-    monkeypatch.setattr(api_client, "resolve_complaint", lambda *_: pytest.fail("resolve was called"))
-    page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
-    assert status_is(page, "🟡 Starting backend...")
     assert page.get_by_key("submit_complaint").disabled
-    assert len(launches) == 1
-    page.run(timeout=30)  # An unrelated rerun must not cause another early poll.
-    assert len(launches) == 1
+    page.get_by_key("retry_backend_connection").click().run(timeout=30)
+    assert status_is(page, "🟡 Starting backend...")
+    assert page.session_state["backend_wake_attempt"] != first_attempt
+    assert len(set(wakes)) == 2
+    state["value"] = "ready"
+    page.session_state["backend_next_check_at"] = 0.0
+    page.run(timeout=30)
+    assert status_is(page, "🟢 Backend ready")
+    assert complaint_value(page) == "My broadband is down."
 
 
 def test_editing_does_not_explicitly_rerun_or_resolve(local_api, monkeypatch):
@@ -334,73 +301,12 @@ def test_editing_does_not_explicitly_rerun_or_resolve(local_api, monkeypatch):
     assert not page.exception
 
 
-def test_editing_does_not_restart_readiness_or_poll_early(monkeypatch):
-    pending = Future()
-    launches = []
-    monkeypatch.setattr(wake, "launch_backend_wake", lambda **kwargs: launches.append(kwargs) or pending)
-    monkeypatch.setattr(api_client, "resolve_complaint", lambda *_: pytest.fail("editing called resolve"))
-    page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
-    started_at = page.session_state["backend_started_at"]
-    assert len(launches) == 1
-    set_complaint(page, "My broadband is down.")
-    set_complaint(page, "My broadband was down.")
-    assert len(launches) == 1
-    assert page.session_state["backend_started_at"] == started_at
-    assert page.get_by_key("submit_complaint").disabled
-    assert complaint_value(page) == "My broadband was down."
-
-
-def test_starting_backend_becomes_ready_on_later_poll(monkeypatch):
-    pending = Future()
-    monkeypatch.setattr(wake, "launch_backend_wake", lambda **_: pending)
-    page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
-    set_complaint(page, "My broadband is down.")
-    assert status_is(page, "🟡 Starting backend...")
-    pending.set_result("ready")
-    page.run(timeout=30)
-    assert status_is(page, "🟢 Backend ready")
-    assert not page.get_by_key("submit_complaint").disabled
-    assert complaint_value(page) == "My broadband is down."
-
-
-def test_retry_window_expires_to_red_and_manual_retry_preserves_complaint(monkeypatch):
-    pending = Future()
-    launches = []
-
-    def launch(*, deadline, retry_interval):
-        result = pending if not launches else Future()
-        if launches:
-            result.set_result("ready")
-        launches.append(result)
-        return result
-
-    monkeypatch.setattr(wake, "launch_backend_wake", launch)
-    page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
-    set_complaint(page, "My broadband is down.")
-    page.session_state["backend_started_at"] = time.monotonic() - 181
-    page.run(timeout=30)
-    assert status_is(page, "🔴 Backend unavailable")
-    assert page.get_by_key("submit_complaint").disabled
-    page.get_by_key("retry_backend_connection").click().run(timeout=30)
-    assert status_is(page, "🟡 Starting backend...")
-    assert len(launches) == 1
-    pending.set_result("unavailable")
-    page.run(timeout=30)
-    page.run(timeout=30)
-    assert status_is(page, "🟢 Backend ready")
-    assert len(launches) == 2
-    assert not page.get_by_key("submit_complaint").disabled
-    assert complaint_value(page) == "My broadband is down."
-
-
 def test_one_click_makes_one_resolve_call_even_after_rerun(local_api, monkeypatch):
     calls = []
     original = api_client.resolve_complaint
-
     def counted(*args, **kwargs):
         calls.append(args)
         return original(*args, **kwargs)
-
     monkeypatch.setattr(api_client, "resolve_complaint", counted)
     page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
     set_complaint(page, COMPLAINTS[0][0])
@@ -411,31 +317,22 @@ def test_one_click_makes_one_resolve_call_even_after_rerun(local_api, monkeypatc
 
 
 def test_connection_loss_restarts_status_without_resubmitting(monkeypatch):
-    pending = Future()
-    launches = []
-
-    def launch(*, deadline, retry_interval):
-        result = Future() if not launches else pending
-        if not launches:
-            result.set_result("ready")
-        launches.append(result)
-        return result
-
-    monkeypatch.setattr(wake, "launch_backend_wake", launch)
+    state = {"value": "ready"}
+    monkeypatch.setattr(api_client, "check_backend_readiness", lambda **_: state["value"])
     calls = []
-
     def connection_lost(_complaint):
         calls.append("resolve")
+        state["value"] = "starting"
         raise api_client.BackendConnectionError("Backend is starting. Please wait until the status changes to Ready.")
-
     monkeypatch.setattr(api_client, "resolve_complaint", connection_lost)
     page = AppTest.from_file(str(ROOT / "frontend" / "app.py")).run(timeout=30)
+    first_attempt = page.session_state["backend_wake_attempt"]
     set_complaint(page, "My broadband is down.")
     page.get_by_key("submit_complaint").click().run(timeout=30)
     assert status_is(page, "🟡 Starting backend...")
     assert page.get_by_key("submit_complaint").disabled
     assert calls == ["resolve"]
-    assert len(launches) == 2
+    assert page.session_state["backend_wake_attempt"] != first_attempt
 
 
 def test_four_demo_complaints_show_all_sections_and_citations(local_api):

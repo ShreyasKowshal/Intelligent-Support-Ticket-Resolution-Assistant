@@ -3,10 +3,11 @@
 import logging
 from hashlib import sha256
 from time import monotonic
+from uuid import uuid4
 
 import streamlit as st
 
-from frontend import live_complaint, wake
+from frontend import api_client, browser_wake, live_complaint
 from frontend.api_client import (
     BackendConnectionError, FrontendError, MAX_COMPLAINT_LENGTH, ResolveResult,
     get_api_base_url, resolve_complaint,
@@ -22,72 +23,40 @@ STATUS_LABELS = {
 }
 
 
-def launch_wake_request() -> None:
-    """Start one session worker for the current startup window."""
-    try:
-        st.session_state.backend_wake_future = wake.launch_backend_wake(
-            deadline=st.session_state.backend_started_at + RETRY_WINDOW_SECONDS,
-            retry_interval=RETRY_INTERVAL_SECONDS,
-        )
-    except Exception as exc:
-        logger.error("FRONTEND_WAKE_WORKER_EXCEPTION=%s", type(exc).__name__)
-        st.session_state.backend_state = "unavailable"
-
-
 def start_backend_check() -> None:
-    """Start or reuse one bounded /ready wake process."""
+    """Start a bounded readiness check and a fresh browser wake attempt."""
     logger.warning("FRONTEND_WAKE_INIT")
-    pending = st.session_state.get("backend_wake_future")
     st.session_state.backend_state = "starting"
     st.session_state.backend_started_at = monotonic()
-    st.session_state.backend_retry_after_pending = pending is not None and not pending.done()
+    st.session_state.backend_next_check_at = 0.0
+    st.session_state.backend_wake_attempt = uuid4().hex
     try:
         get_api_base_url()
     except FrontendError:
         logger.error("FRONTEND_WAKE_CONFIG_ERROR")
         st.session_state.backend_state = "unavailable"
-        st.session_state.backend_wake_future = None
-        return
-    if pending is not None and not pending.done():
-        st.session_state.backend_wake_future = pending
-    else:
-        st.session_state.backend_wake_future = None
-        launch_wake_request()
 
 
 def poll_backend_status() -> bool:
-    """Read the one worker's result without blocking the Streamlit page."""
+    """Check readiness; the browser wake request does not decide status."""
     if st.session_state.backend_state != "starting":
         return False
     now = monotonic()
-    future = st.session_state.get("backend_wake_future")
-    if future is None:
-        st.session_state.backend_state = "unavailable"
-        logger.error("FRONTEND_WAKE_WORKER_MISSING")
-        return True
-    if future.done():
-        try:
-            state = future.result()
-        except Exception as exc:
-            logger.error("FRONTEND_WAKE_WORKER_EXCEPTION=%s", type(exc).__name__)
-            state = "unavailable"
-        st.session_state.backend_wake_future = None
-        if state == "ready":
-            logger.warning("FRONTEND_WAKE_READY_OK")
-            st.session_state.backend_state = "ready"
-            return True
-        if (
-            st.session_state.backend_retry_after_pending
-            and now - st.session_state.backend_started_at < RETRY_WINDOW_SECONDS
-        ):
-            st.session_state.backend_retry_after_pending = False
-            launch_wake_request()
-            return st.session_state.backend_state == "unavailable"
-        st.session_state.backend_state = "unavailable"
-        return True
     if now - st.session_state.backend_started_at >= RETRY_WINDOW_SECONDS:
         st.session_state.backend_state = "unavailable"
         logger.warning("FRONTEND_WAKE_STARTUP_WINDOW_EXPIRED")
+        return True
+    if now < st.session_state.backend_next_check_at:
+        return False
+    st.session_state.backend_next_check_at = now + RETRY_INTERVAL_SECONDS
+    try:
+        state = api_client.check_backend_readiness()
+    except Exception as exc:
+        logger.error("FRONTEND_WAKE_READY_EXCEPTION=%s", type(exc).__name__)
+        state = "starting"
+    logger.warning("FRONTEND_WAKE_READY_STATUS=%s", state)
+    if state != "starting":
+        st.session_state.backend_state = state
         return True
     return False
 
@@ -207,8 +176,11 @@ def main() -> None:
     st.session_state.setdefault("last_submitted_complaint", "")
     st.session_state.setdefault("last_submit_id", None)
     st.session_state.setdefault("submission_ack", 0)
-    if "backend_state" not in st.session_state or "backend_wake_future" not in st.session_state:
+    if "backend_state" not in st.session_state or "backend_wake_attempt" not in st.session_state:
         start_backend_check()
+
+    if st.session_state.backend_state == "starting":
+        browser_wake.trigger_backend_wake(attempt=st.session_state.backend_wake_attempt)
 
     @st.fragment(run_every=RETRY_INTERVAL_SECONDS if st.session_state.backend_state == "starting" else None)
     def backend_status_panel() -> None:
