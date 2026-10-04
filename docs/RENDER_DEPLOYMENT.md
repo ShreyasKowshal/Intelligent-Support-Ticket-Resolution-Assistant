@@ -4,7 +4,7 @@
 
 - Frontend: https://support-ticket-assistant-ui.onrender.com
 - Backend: https://support-ticket-assistant-api.onrender.com
-- Branch: `develop`
+- Branch: `main`
 - Hosted database: Render Postgres
 - Local fallback: SQLite
 
