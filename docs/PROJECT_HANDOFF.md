@@ -1,6 +1,6 @@
 # Project handoff
 
-**Phases 1–10 are complete.** `develop` is active; `main` remains unmerged.
+**Phases 1–10 are complete.** `main` is the stable submission branch; `develop` is retained for future fixes. Both branches are currently aligned.
 
 ## Original problem and goal
 
@@ -23,8 +23,8 @@ hosted Render Postgres. Only approved evidence is retrieved; the agent reviews e
 
 ## Git and phase workflow
 
-Use focused commits on `develop` and push to `origin/develop`; do not rewrite history or commit secrets. Merge `main` only
-when explicitly requested after final verification. Phase commits remain in Git history.
+Use focused commits on `develop` and push to `origin/develop`; do not rewrite history or commit secrets. Make future fixes on
+`develop`, verify them, then merge them into `main`. Phase commits remain in Git history.
 
 ## Completed phases
 
