@@ -145,6 +145,124 @@ def test_non_actionable_input_skips_search_and_rag(api, complaint):
 
 
 @pytest.mark.parametrize("complaint", [
+    "My keyboard is not working", "My phone camera is broken",
+    "My phone battery is not charging", "My laptop screen is cracked",
+    "My speaker is damaged", "My mouse is not working",
+    "My phone screen is flickering", "My laptop fan is making noise",
+    "My camera app is crashing", "My phone storage is full",
+])
+def test_out_of_scope_device_issue_skips_retrieval_and_rag(api, complaint):
+    client, service, provider = api
+    provider.result = {
+        **ANALYSIS, "intent": "repair a device hardware or software issue",
+        "category": "other", "product": "other", "needs_review": True,
+        "rationale": "This device issue is unrelated to telecom service.",
+    }
+    service.search.load_or_build = lambda: pytest.fail("FAISS must be skipped")
+    service.search.search = lambda *_args, **_kwargs: pytest.fail("retrieval must be skipped")
+    provider.generate_resolution = lambda *_args: pytest.fail("RAG must be skipped")
+
+    response = client.post("/resolve", json={"complaint": complaint})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["analysis"] and body["non_actionable"] is True
+    assert body["tickets"] == body["kb_articles"] == []
+    assert body["source_ids"] == body["resolution"]["sources_used"] == []
+    assert body["resolution"]["resolution_steps"] == []
+    assert body["insufficient_evidence"] is True
+    assert "telecom service problem" in body["resolution"]["escalation_recommendation"]
+    assert "escalat" not in body["resolution"]["escalation_recommendation"].lower()
+
+
+@pytest.mark.parametrize("complaint", [
+    "My phone camera is broken", "My phone battery is not charging",
+])
+def test_explicit_non_telecom_analysis_overrides_known_phone_product(api, complaint):
+    client, service, provider = api
+    provider.result = {
+        **ANALYSIS, "intent": "repair device hardware", "category": "other",
+        "product": "mobile_prepaid", "needs_review": True,
+        "rationale": "The issue is outside telecom support.",
+        "suggested_category": "device_repair",
+    }
+    service.search.load_or_build = lambda: pytest.fail("FAISS must be skipped")
+    provider.generate_resolution = lambda *_args: pytest.fail("RAG must be skipped")
+    body = client.post("/resolve", json={"complaint": complaint}).json()
+    assert body["non_actionable"] is True
+    assert body["tickets"] == body["kb_articles"] == body["source_ids"] == []
+
+
+def test_unknown_phone_hardware_fault_skips_without_exact_device_noun(api):
+    client, service, provider = api
+    provider.result = {
+        **ANALYSIS, "intent": "repair hardware", "category": "other",
+        "product": "other", "needs_review": True,
+        "rationale": "A physical hardware fault is described.",
+    }
+    service.search.load_or_build = lambda: pytest.fail("FAISS must be skipped")
+    provider.generate_resolution = lambda *_args: pytest.fail("RAG must be skipped")
+    body = client.post("/resolve", json={"complaint": "My phone camera is broken"}).json()
+    assert body["non_actionable"] is True
+    assert body["tickets"] == body["kb_articles"] == body["source_ids"] == []
+
+
+@pytest.mark.parametrize("complaint", [
+    "My mobile data is not working", "My phone has no network signal",
+    "My phone has no mobile network",
+    "Calls keep dropping", "My SIM is not activating",
+    "My broadband is slow", "My recharge is missing",
+    "Roaming is not working", "My phone camera is broken and mobile data is down",
+])
+def test_real_telecom_service_problem_proceeds_despite_device_wording(api, complaint):
+    client, service, provider = api
+    provider.result = {
+        **ANALYSIS, "category": "other", "product": "other", "needs_review": True,
+        "intent": "check a device issue", "rationale": "A device problem may be involved.",
+    }
+    calls = []
+    original = service.search.search
+
+    def counted(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    service.search.search = counted
+    body = client.post("/resolve", json={"complaint": complaint}).json()
+    assert body["non_actionable"] is False
+    assert calls == [1]
+
+
+def test_billing_issue_proceeds_without_device_words(api):
+    client, service, provider = api
+    provider.result = {
+        **ANALYSIS, "category": "billing_dispute", "product": "mobile_postpaid",
+        "intent": "correct a duplicate charge", "rationale": "Customer reports double billing.",
+    }
+    body = client.post("/resolve", json={"complaint": "I was charged twice"}).json()
+    assert body["non_actionable"] is False
+    assert body["tickets"] and body["kb_articles"]
+
+
+def test_vague_mobile_device_wording_is_not_enough_to_block(api):
+    client, service, provider = api
+    provider.result = {
+        **ANALYSIS, "category": "other", "product": "other", "needs_review": True,
+        "intent": "check a mobile device", "rationale": "Symptoms are vague; a device issue is possible.",
+    }
+    calls = []
+    original = service.search.search
+
+    def counted(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    service.search.search = counted
+    body = client.post("/resolve", json={"complaint": "My mobile is not working properly."}).json()
+    assert body["non_actionable"] is False
+    assert calls == [1]
+
+
+@pytest.mark.parametrize("complaint", [
     "My mobile is not working properly.", "Internet is slow sometimes.",
     "There is some issue with my SIM.", "My broadband has a problem.",
     "Calls are not working well.", "My phone network is bad.",

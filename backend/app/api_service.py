@@ -89,7 +89,10 @@ class ApiServices:
                 return analysis, SearchResults([], []), RAGResolution(
                     problem_summary="No clear telecom issue was identified.",
                     resolution_steps=[],
-                    escalation_recommendation="Please describe the affected service and symptoms.",
+                    escalation_recommendation=(
+                        "No telecom service issue was identified. Please describe the telecom service "
+                        "problem you need help with."
+                    ),
                     confidence_or_evidence_note=(
                         "Retrieval was skipped because the message did not describe an actionable telecom problem."
                     ),
