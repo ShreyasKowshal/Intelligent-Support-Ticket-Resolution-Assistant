@@ -427,6 +427,60 @@ def test_vague_telecom_input_still_searches(api, complaint):
     assert response.json()["tickets"] and response.json()["kb_articles"]
 
 
+@pytest.mark.parametrize("complaint", [
+    "My service is not working properly.",
+    "There is some issue with my connection.",
+    "Something is wrong with my service.",
+    "I have a problem with my telecom service.",
+    "My connection has some issue.",
+])
+def test_extremely_vague_telecom_input_asks_for_clarification_without_search(api, complaint):
+    client, service, provider = api
+    provider.result = {
+        **ANALYSIS, "category": "other", "product": "other",
+        "needs_review": True, "confidence": 0.35,
+        "intent": "Clarify an unspecified service problem",
+        "rationale": "The complaint is too vague to identify the affected service or symptoms.",
+    }
+    service.search.load_or_build = lambda: pytest.fail("FAISS must be skipped")
+    service.search.search = lambda *_args, **_kwargs: pytest.fail("retrieval must be skipped")
+    provider.generate_resolution = lambda *_args: pytest.fail("RAG must be skipped")
+    response = client.post("/resolve", json={"complaint": complaint})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["analysis"] and body["non_actionable"] is True
+    assert body["tickets"] == body["kb_articles"] == body["source_ids"] == []
+    assert body["resolution"]["resolution_steps"] == body["resolution"]["sources_used"] == []
+    assert body["insufficient_evidence"] is True
+    assert "describe the telecom service problem" in body["resolution"]["escalation_recommendation"]
+
+
+@pytest.mark.parametrize("complaint", [
+    "No signal.", "SIM not working.", "Data very slow.", "Calls dropping.",
+    "Broadband disconnected.", "Recharge missing.", "Bill too high.", "Account locked.",
+])
+def test_short_specific_telecom_input_retrieves_despite_vague_analysis(api, complaint):
+    client, service, provider = api
+    provider.result = {
+        **ANALYSIS, "category": "other", "product": "other",
+        "needs_review": True, "confidence": 0.35,
+        "intent": "Clarify an unspecified service problem",
+        "rationale": "The complaint is too vague to identify the affected service or symptoms.",
+    }
+    calls = []
+    original = service.search.search
+
+    def counted(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    service.search.search = counted
+    response = client.post("/resolve", json={"complaint": complaint})
+    assert response.status_code == 200
+    assert response.json()["non_actionable"] is False
+    assert calls == [1]
+
+
 @pytest.mark.parametrize("analysis_changes", [
     {"needs_review": True}, {"confidence": 0.55},
 ])

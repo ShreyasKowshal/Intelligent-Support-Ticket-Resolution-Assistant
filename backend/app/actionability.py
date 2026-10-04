@@ -6,7 +6,7 @@ from app.analysis import ComplaintAnalysis
 
 
 DOMAIN_WORDS = frozenset({
-    "account", "broadband", "call", "calls", "cellular", "connection", "data",
+    "account", "bill", "broadband", "call", "calls", "cellular", "connection", "data",
     "fiber", "fibre", "internet", "mobile", "modem", "network", "phone",
     "recharge", "roaming", "router", "service", "signal", "sim", "telecom", "wifi",
 })
@@ -14,7 +14,7 @@ PROBLEM_WORDS = frozenset({
     "activate", "bad", "billing", "blocked", "broken", "cancel", "cannot",
     "charge", "charged", "disconnect", "disconnected", "down", "drop",
     "dropping", "drops", "error", "fail", "failed", "fails", "failure", "help", "issue",
-    "lost", "missing", "need", "no", "not", "outage", "problem", "refund", "slow", "stopped",
+    "high", "locked", "lost", "missing", "need", "no", "not", "outage", "problem", "refund", "slow", "stopped",
     "unable", "unstable", "weak", "working",
 })
 KEYWORD_ONLY_WORDS = DOMAIN_WORDS | {"laptop", "tablet"}
@@ -24,7 +24,15 @@ TELECOM_SERVICE_WORDS = frozenset({
     "fiber", "fibre", "internet", "modem", "network", "plan", "recharge",
     "roaming", "router", "signal", "sim", "sms", "telecom", "wifi",
 })
+SPECIFIC_TELECOM_WORDS = (TELECOM_SERVICE_WORDS - {"connection", "telecom"}) | {
+    "account", "bill", "mobile", "phone",
+}
 TEXT_MESSAGE = re.compile(r"\b(?:text messages?|texts)\b", re.IGNORECASE)
+VAGUE_REASON = re.compile(
+    r"\b(?:vague|unspecified|unclear|too general|insufficient (?:detail|information)"
+    r"|not enough (?:detail|information)|(?:does not|doesn't) specify)\b",
+    re.IGNORECASE,
+)
 LOCAL_DEVICE = frozenset({"computer", "laptop", "pc", "windows"})
 LOCAL_ACCESS = frozenset({"login", "logon", "password", "signin"})
 LOG_IN = re.compile(r"\blog(?:ging)?\s+in(?:to)?\b", re.IGNORECASE)
@@ -68,6 +76,16 @@ def is_non_actionable_complaint(complaint: str, analysis: ComplaintAnalysis) -> 
         and (tokens & LOCAL_ACCESS or LOG_IN.search(text))
         and not has_telecom_service
         and not TELECOM_ACCOUNT.search(text)
+    ):
+        return True
+    if (
+        analysis.category == "other"
+        and analysis.product == "other"
+        and analysis.needs_review
+        and analysis.confidence < 0.60
+        and analysis.suggested_category is None
+        and not (tokens & SPECIFIC_TELECOM_WORDS or TEXT_MESSAGE.search(text))
+        and VAGUE_REASON.search(f"{analysis.intent} {analysis.rationale}")
     ):
         return True
     if analysis.category == "other" and analysis.needs_review and not has_telecom_service:
