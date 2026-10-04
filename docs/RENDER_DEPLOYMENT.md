@@ -1,178 +1,54 @@
-# Render deployment runbook
+# Render deployment
 
-This runbook describes a prototype deployment from the `develop` branch. Do not
-deploy real customer data or put credentials in Git, build commands, or chat.
-The application uses two Python web services and one Render Postgres database.
-The Streamlit service calls the public FastAPI HTTPS URL from its server process;
-only FastAPI calls Gemini and Postgres. The agent's browser also sends bounded
-GET requests to the public `/ready` URL to try to wake a sleeping Free backend;
-those requests contain no complaint or credential.
+## Services
 
-## Configuration
+- Frontend: https://support-ticket-assistant-ui.onrender.com
+- Backend: https://support-ticket-assistant-api.onrender.com
+- Branch: `develop`
+- Hosted database: Render Postgres
+- Local fallback: SQLite
 
-| Resource | Setting | Value |
-| --- | --- | --- |
-| Postgres | Region | Same region as backend |
-| Backend web service | Branch / root directory | `develop` / `backend` |
-| Backend web service | Build command | `pip install -r requirements.txt` |
-| Backend web service | Start command | `test -n "$DATABASE_URL" && python -m app.seed && exec python -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT" --workers 1` |
-| Backend web service | HTTP health check path | `/health` |
-| Frontend web service | Branch / root directory | `develop` / repository root (leave root directory blank) |
-| Frontend web service | Build command | `pip install -r frontend/requirements.txt` |
-| Frontend web service | Start command | `python -m streamlit run frontend/app.py --server.address 0.0.0.0 --server.port "$PORT" --server.headless true` |
+## Backend
 
-Use the Python runtime and set `PYTHON_VERSION=3.12.14` on both services. Do not
-set `PORT` manually; Render supplies it. The frontend must run from the
-repository root because `frontend/app.py` imports `frontend.api_client`.
+- Root directory: `backend`
+- Build command: `pip install -r requirements.txt`
+- Start command: `test -n "$DATABASE_URL" && python -m app.seed && exec python -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT" --workers 1`
+- Required environment variables:
+  - `DATABASE_URL`: Render Postgres internal connection URL
+  - `GEMINI_API_KEY`: configure as a secret in Render
+  - `PYTHON_VERSION`: `3.12.14`
+- Optional environment variables:
+  - `GEMINI_MODEL`: Gemini model override
+  - `ADMIN_API_KEY`: enables guarded admin routes when set
+- `GET /health`: process liveness
+- `GET /ready`: database, search index, embedding model, and Gemini configuration readiness
 
-The backend start command deliberately runs the idempotent seed every time its
-single process starts. It inserts any missing synthetic seed IDs and leaves
-existing records untouched, including records changed through ingestion. The
-initial seed and later updates live in Postgres. The `test -n` guard makes the
-hosted service fail to start if `DATABASE_URL` is absent, rather than silently
-using a temporary SQLite database. Local commands still default to SQLite.
-The SQLAlchemy schema and queries use portable constructs, and the automated
-suite checks Postgres URL handling and dialect compilation. Hosted readiness
-confirmed a database connection and the live resolution retrieved seeded
-evidence. A post-restart persistence check has not been separately recorded.
+## Frontend
 
-## Environment variables
+- Root directory: repository root (leave Render's Root Directory field blank)
+- Build command: `pip install -r frontend/requirements.txt`
+- Start command: `python -m streamlit run frontend/app.py --server.address 0.0.0.0 --server.port "$PORT" --server.headless true`
+- `API_BASE_URL`: `https://support-ticket-assistant-api.onrender.com` (no trailing slash)
+- `PYTHON_VERSION`: `3.12.14`
 
-| Service | Name | Value or purpose |
-| --- | --- | --- |
-| Backend | `DATABASE_URL` | Render Postgres **internal** connection URL |
-| Backend | `GEMINI_API_KEY` | Secret entered in the Render dashboard only |
-| Backend | `GEMINI_MODEL` | Optional model override; otherwise the configured application default |
-| Backend | `CORS_ORIGINS` | Optional explicit browser origins; Streamlit's server-side client does not require it |
-| Backend | `ADMIN_API_KEY` | Optional secret; leave unset to disable admin updates |
-| Backend | `PYTHON_VERSION` | `3.12.14` |
-| Frontend | `API_BASE_URL` | Public backend HTTPS origin, with no trailing slash |
-| Frontend | `PYTHON_VERSION` | `3.12.14` |
+## Cold start
 
-Keep backend and Postgres in the same Render region and use the internal URL
-for the database. The Streamlit process uses the backend's public HTTPS URL;
-it does not need a Postgres or Gemini credential. `CORS_ORIGINS` limits browser
-origins, although Streamlit's server-side HTTP request is not a browser CORS
-request. Do not set a wildcard origin. `GET /health` checks that the API
-process responds; `GET /ready` additionally checks database access, search
-indexes/model, and whether Gemini is configured. Readiness does **not** call
-Gemini, so a hosted live request is still required.
+Render Free can sleep. The browser makes wake attempts at 0, 25, and 75
+seconds; readiness polls about every 5 seconds within a 180-second startup
+window. **Retry backend connection** starts a fresh attempt. The latest
+sleeping-backend, frontend-only wake test worked, but startup time can still
+vary on Render Free.
 
-The recorded Postgres deployment is in Singapore with external database access
-disabled. The latest completed local regression suite passed **224 backend
-tests + 59 frontend tests = 283 total**.
+## Quick verification
 
-## Render Free wake and readiness
+1. Check backend `GET /health`.
+2. Check backend `GET /ready`.
+3. Open the frontend URL.
+4. Submit: “My broadband drops every evening around 8 PM and I already restarted the router twice.”
+5. Confirm analysis, ticket and KB retrieval, cited resolution, and source IDs appear.
 
-On initial page load, a small browser iframe navigates to the configured
-`API_BASE_URL` plus `/ready`. It makes up to three browser-origin GET attempts
-per startup lifecycle: immediately, after about 25 seconds, and after about 75
-seconds. Each URL includes a unique `wake` lifecycle value and `n` retry number
-to avoid reusing a cached navigation. The iframe does not read the cross-origin
-response and does not require broader backend CORS access.
+## Limitations
 
-Separately, Streamlit's server-side client polls `/ready` about every five
-seconds for up to 180 seconds. `/health` is only process liveness; only a ready
-`/ready` response enables complaint submission. Temporary gateway errors or
-timeouts remain a yellow starting state during the window. If the window
-expires, the status turns red; **Retry backend connection** starts a new wake
-and readiness lifecycle. The browser wake is bounded and never calls
-`/resolve`, Gemini, or Postgres directly.
-
-The complaint limit remains 3000 characters in the UI and API; 3001 or more
-is rejected without truncation.
-
-Render Free cold starts have been intermittent in hosted use. One manually
-opened `/ready` took roughly ten minutes, so the 180-second window is not a
-guaranteed startup time. The latest three-attempt browser retry behavior has
-passed local tests, but a new sleeping-backend hosted validation has not been
-recorded. To validate it, let the backend sleep, open only the frontend, and
-confirm browser wake attempts, backend startup, `/ready`, and yellow-to-green
-status without manually opening the backend URL.
-
-## Durable and rebuildable state
-
-Postgres durably stores tickets, KB articles, taxonomy, and versioned embedding
-vectors. The backend's `backend/data/indexes/` FAISS files and
-`backend/data/model_cache/` are disposable. A fresh Render instance may need to
-download the pinned ONNX MiniLM artifact again. On the first `/ready` or search
-after a fresh deploy, missing or stale indexes rebuild from approved Postgres
-records and reuse stored vectors. The synthetic seed contains 120 tickets and
-24 KB articles; 96 resolved, approved tickets and 22 approved KB articles are
-eligible retrieval evidence.
-A persistent disk is not required for this small prototype. Model download,
-FAISS construction, and service memory use must be checked on the chosen
-Render instance. No paid compute plan is assumed by this runbook.
-
-The previous PyTorch runtime's local Windows cold-start measurement was 11.6
-seconds for API import. In the local ONNX prototype with a warm model cache,
-peak process memory was 282.2 MiB through `/ready`, index rebuild, `/search`,
-and a fake-provider `/resolve`. The hosted Linux memory peak and first model
-download remain unverified.
-
-Use one backend worker and one service instance for the prototype. The shared
-in-process lock protects search/index updates and taxonomy reloads, and also
-serializes Gemini calls within that worker. Additional processes would each
-hold their own index and lock; horizontal scaling needs a coordinated indexing
-design before it is safe.
-
-## Hosted verification checklist
-
-1. Confirm the backend deploy reaches Live. Check `/health` returns 200.
-2. Call `/ready` and record whether it triggers a first model download or index
-   rebuild. It should return 200 when the database, index, model, and Gemini
-   configuration are available.
-3. Confirm approved ticket and KB matches appear from `/search`. Restart the
-   backend and confirm the same Postgres records remain and indexes rebuild.
-4. Call `/analyze` and `/resolve` with the synthetic broadband example. Check
-   cited IDs are among retrieved approved evidence and record response latency.
-5. Open Streamlit, paste the provided broadband complaint into the textarea,
-   and confirm analysis, ticket matches, KB matches, cited draft steps, and the
-   agent-review warning.
-6. Try an out-of-domain complaint for the insufficient-evidence state. The
-   provider-error UI path is covered by local fake-provider tests; do not
-   disable or alter hosted secrets solely to force that error. Review logs for
-   request routing and failures without copying secret values or complaint
-   text into reports.
-
-The live example is: “My broadband drops every evening around 8 PM and I
-already restarted the router twice.” Keep the result as a demonstration of a
-single hosted run, not a measured production quality score.
-
-## Recorded hosted result
-
-The [backend](https://support-ticket-assistant-api.onrender.com) and
-[frontend](https://support-ticket-assistant-ui.onrender.com) reached Live on
-Render Free after switching the encoder to FastEmbed/ONNX. On 2026-10-02,
-`/health` and `/ready` returned 200. Readiness reported database, search index,
-embedding model, and Gemini configuration ready. A live backend `/resolve`
-returned 200 with analysis, five ticket matches, five KB matches, cited steps,
-and escalation in 3,048 ms. The user then completed the same complaint in the
-hosted Streamlit UI: analysis, five ticket and five KB matches, a cited draft,
-escalation, source IDs, and the agent-review warning appeared. Backend processing
-time in that UI run was 3,192 ms. A separate out-of-domain backend `/resolve`
-returned 200 with `insufficient_evidence=true` and no ticket matches. These are
-single-run observations. The post-restart persistence check, Linux memory peak,
-first model download time, out-of-domain Streamlit rendering, and hosted
-provider-error UI state were not separately recorded; local automated tests
-cover the two UI states. These October 2 results predate the later browser
-wake retries and actionability changes; do not treat them as validation of
-those newer paths.
-
-## Security and operational limits
-
-Admin routes return a configuration error when `ADMIN_API_KEY` is absent. A
-shared admin key is suitable only for this controlled prototype; a production
-service needs identity-based authentication, authorization, audit logs, rate
-limiting, privacy and retention controls, and a stronger semantic grounding
-check. The API deliberately avoids logging raw complaints and returns
-sanitized provider/storage errors. Use Render environment settings for
-credentials and avoid external database access unless it is needed for
-administration. Confirm the selected Postgres plan's retention and backup
-terms before treating it as durable beyond the demo window.
-
-The final public preflight check rejected both the Streamlit origin and an
-unrelated origin. The hosted UI remains functional because Streamlit sends
-HTTP requests from its server process. Configure `CORS_ORIGINS` only if a
-browser client later needs direct API access; then allow only the required
-origin.
+- Render Free cold starts can vary.
+- The prototype uses one backend worker.
+- Admin security suits controlled evaluation, not full production RBAC.
