@@ -22,8 +22,16 @@ CONSONANT_RUN = re.compile(r"[bcdfghjklmnpqrstvwxyz]{6,}", re.IGNORECASE)
 TELECOM_SERVICE_WORDS = frozenset({
     "billing", "broadband", "call", "calls", "cellular", "connection", "data",
     "fiber", "fibre", "internet", "modem", "network", "plan", "recharge",
-    "roaming", "router", "signal", "sim", "telecom", "wifi",
+    "roaming", "router", "signal", "sim", "sms", "telecom", "wifi",
 })
+TEXT_MESSAGE = re.compile(r"\b(?:text messages?|texts)\b", re.IGNORECASE)
+LOCAL_DEVICE = frozenset({"computer", "laptop", "pc", "windows"})
+LOCAL_ACCESS = frozenset({"login", "logon", "password", "signin"})
+LOG_IN = re.compile(r"\blog(?:ging)?\s+in(?:to)?\b", re.IGNORECASE)
+TELECOM_ACCOUNT = re.compile(
+    r"\b(?:telecom|carrier|(?:mobile|cellular) provider|customer portal)\b",
+    re.IGNORECASE,
+)
 OUT_OF_SCOPE_REASON = re.compile(
     r"\b(?:non[ -]?telecom|outside (?:telecom|carrier)"
     r"|(?:unrelated|not related) to (?:telecom|network|carrier|service|account)"
@@ -53,7 +61,16 @@ def is_non_actionable_complaint(complaint: str, analysis: ComplaintAnalysis) -> 
     tokens = set(words)
     if len(words) >= 2 and tokens <= KEYWORD_ONLY_WORDS:
         return True
-    if analysis.category == "other" and analysis.needs_review and not tokens & TELECOM_SERVICE_WORDS:
+    has_telecom_service = bool(tokens & TELECOM_SERVICE_WORDS or TEXT_MESSAGE.search(text))
+    if (
+        analysis.category in {"account_access", "other"}
+        and tokens & LOCAL_DEVICE
+        and (tokens & LOCAL_ACCESS or LOG_IN.search(text))
+        and not has_telecom_service
+        and not TELECOM_ACCOUNT.search(text)
+    ):
+        return True
+    if analysis.category == "other" and analysis.needs_review and not has_telecom_service:
         reasoning = f"{analysis.intent} {analysis.rationale}"
         if OUT_OF_SCOPE_REASON.search(reasoning) or DEVICE_REASON.search(reasoning):
             return True
