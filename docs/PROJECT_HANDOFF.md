@@ -37,7 +37,7 @@ when explicitly requested after final verification. Phase commits remain in Git 
 7. **Phase 7 — API:** Health, readiness, analyze, search, resolve, and guarded admin routes with validation and safe errors.
 8. **Phase 8 — frontend:** Streamlit complaint workflow with analysis, tickets, KB, resolution, sources, and system information.
 9. **Phase 9 — evaluation:** Fake-provider analysis, real FAISS retrieval, TF-IDF baseline, scripted RAG checks, and saved results.
-10. **Phase 10 — deployment:** FastAPI, Streamlit, and Postgres on Render; FastEmbed/ONNX enabled Free use; hosted flow passed.
+10. **Phase 10 — deployment:** FastAPI, Streamlit, and Postgres on Render; FastEmbed/ONNX reduced memory enough for Render Free deployment; hosted flow passed.
 
 ## Post-Phase-10 hardening
 
