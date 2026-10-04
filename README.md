@@ -80,7 +80,7 @@ sequenceDiagram
 
 - Structured complaint analysis: intent, category, product, severity, sentiment, and review status.
 - FastEmbed/ONNX `all-MiniLM-L6-v2` embeddings with separate FAISS ticket and KB indexes.
-- Cited RAG draft with insufficient-evidence abstention and an agent-review warning.
+- Cited RAG draft that avoids guessing when evidence is weak and requires agent review.
 - Controlled ticket, KB, and taxonomy updates with refreshed search indexes.
 - FastAPI, Streamlit, Gemini, SQLAlchemy, Render Postgres, and local SQLite.
 
@@ -146,13 +146,13 @@ Render Free startup time can still vary. See the [Render deployment guide](docs/
 - **Executable code:** FastAPI backend, Streamlit frontend, evaluation framework, and tests are checked into this repository; deployment instructions are included.
 - **Additional exploration:** FAISS retrieval is compared with a TF-IDF baseline using held-out queries.
 - **System-health evaluation:** `/health`, `/ready`, automated tests, and evaluation checks cover readiness and core system paths.
-- **Production-scale considerations:** authentication, scalable retrieval/storage, monitoring, privacy/governance, cold starts, and worker limits are summarized under Limitations.
+- **Production-scale considerations** are summarized under Limitations.
 - **Dataset:** synthetic telecom support-ticket scenarios are used.
 
 ## Limitations
 
 - Synthetic data and sparse relevance labels limit generalization; live Gemini accuracy has not been formally measured.
-- Citation-ID validity does not establish semantic entailment; agents must review every suggested step.
+- Valid citation IDs do not guarantee that every generated step is fully supported by the source; agents must review every suggested step.
 - The shared admin key is not full production RBAC; the prototype uses one backend worker.
 - Render Free cold starts can vary.
 
