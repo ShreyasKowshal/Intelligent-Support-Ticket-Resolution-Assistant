@@ -12,10 +12,15 @@ prototype supports reviewed new ticket classes and updated guidance.
 flowchart LR
     Agent[Support agent] --> UI[Streamlit UI]
     UI -->|POST /resolve| API[FastAPI API]
+    UI -->|GET /ready polling| API
+    UI --> Wake[Browser-origin wake]
+    Wake -->|Bounded GET /ready| API
     API --> Analyze[Complaint analyzer]
-    API --> Search[Semantic search]
-    API --> RAG[RAG resolver]
+    Analyze --> Actionable{Actionable telecom issue?}
+    Actionable -->|No| Clarify[Clarification without retrieval or RAG]
+    Actionable -->|Yes| Search[Semantic search]
     Analyze --> Gemini[Gemini API]
+    Clarify --> API
     RAG --> Gemini
     Search --> Encoder[Pinned MiniLM via FastEmbed ONNX]
     Search --> TicketsIndex[FAISS ticket index]
@@ -25,7 +30,7 @@ flowchart LR
     DB --> KB[KB articles]
     DB --> Taxonomy[Taxonomy]
     DB --> Embeddings[Versioned embeddings]
-    Search -->|Approved evidence + source IDs| RAG
+    Search -->|Approved evidence + source IDs| RAG[RAG resolver]
     RAG -->|Cited draft + review state| API
     API -->|Analysis, matches, citations| UI
     Admin[Reviewed admin ingestion] -->|Guarded API / CLI| API
@@ -35,9 +40,10 @@ flowchart LR
 The frontend calls FastAPI over HTTP and never calls Gemini or the database
 directly. Separate FAISS indexes rank eligible tickets and KB articles; the
 database rechecks approval before evidence is returned. Gemini analyzes the
-complaint and drafts steps from bounded retrieved context. Citation validation
-checks exact approved source IDs and textual references, but cannot prove that
-a step is semantically supported.
+complaint. An actionability check asks for clarification before retrieval when
+the input has no actionable telecom issue; otherwise Gemini drafts steps from
+bounded retrieved context. Citation validation checks exact approved source IDs
+and textual references, but cannot prove that a step is semantically supported.
 
 ## Features and stack
 
@@ -101,9 +107,13 @@ resolution, and evidence status. It does not call Gemini directly. Set
 the default is `http://127.0.0.1:8000`. For example, in PowerShell use
 `$env:API_BASE_URL = "http://127.0.0.1:8000"` before starting Streamlit.
 The page checks `/ready` before enabling submission. During a backend cold
-start, it checks about every five seconds for up to 70 seconds while the agent
-can type; an unavailable state offers a manual retry. Only clicking
-**Analyze & Resolve** sends a complaint to `/resolve`.
+start, the browser sends bounded, cache-busted `/ready` wake requests at 0, 25,
+and 75 seconds using lifecycle and retry parameters. The frontend checks
+readiness about every five seconds for up to 180 seconds while the agent can
+type; an unavailable state offers a manual retry that starts a fresh wake
+lifecycle. A complaint may contain at most 3000 characters: 3000 is accepted,
+and 3001 or more is rejected without truncation. Only clicking **Analyze &
+Resolve** sends a complaint to `/resolve`.
 Run `python -m pytest -q` from `backend/` for backend tests, and
 `python -m pytest -q frontend/tests` from the repository root for frontend
 tests.
@@ -151,9 +161,20 @@ request may load the embedding model and build indexes.
 `POST /analyze` accepts `{"complaint":"..."}` and returns structured analysis
 plus `latency_ms`. `POST /search` accepts the same complaint and optional
 `top_k_tickets` and `top_k_kb` (1–20), returning approved evidence and scores.
-`POST /resolve` runs analysis, retrieval, and cited RAG generation and returns
+`POST /resolve` runs analysis and an actionability check. Actionable complaints
+continue through retrieval and cited RAG generation; non-actionable inputs
+return a clarification with no matches, steps, or sources. The response includes
 analysis, matches, resolution, source IDs, insufficient-evidence status, and
-`latency_ms`. Similarity scores are ranking scores, not probabilities.
+`latency_ms`. All complaint routes reject more than 3000 characters without
+truncation. Similarity scores are ranking scores, not probabilities.
+
+The actionability check is designed to skip clearly identified nonsense,
+casual non-telecom statements, pure device/hardware or local computer login
+problems, extremely vague complaints, and educational telecom questions. A
+mixed hardware and telecom service complaint can still proceed on its telecom
+issue. Genuine provider account-access problems and short specific complaints
+such as “No signal.” also proceed. This guard depends on structured analysis
+and complaint context, so agent review remains necessary.
 
 Optional `POST /admin/tickets`, `POST /admin/kb`, and `POST /admin/taxonomy`
 reuse controlled ingestion. Set `ADMIN_API_KEY` in the environment and send it
@@ -270,7 +291,8 @@ for TF-IDF. Scripted RAG checks had 100% cited-ID validity and step citation
 coverage, while deliberately revealing that valid IDs can accompany
 conflicting or harmful advice. The saved warm fake-provider `/resolve` mean
 latency was about 21.6 ms; this excludes cold loading, network time, and
-Gemini. The current local suite has 117 backend and 33 frontend tests passing.
+Gemini. The latest completed local suite passed **224 backend tests and 59
+frontend tests (283 total)**.
 See [the full evaluation summary](backend/evaluation/results/evaluation_summary.md)
 for denominators, MRR, failure cases, and interpretation.
 
@@ -293,10 +315,11 @@ same complaint completed through the hosted UI, showing analysis, five ticket
 matches, five KB articles, cited steps, escalation, sources used, and the agent
 review warning; backend processing time in that run was 3,192 ms. A separate
 hosted out-of-domain `/resolve` request returned `insufficient_evidence=true`
-with no ticket matches. These are individual observations, not a latency
-distribution or quality benchmark. Deployed browser preflight requests currently
-reject the Streamlit origin; Streamlit's server-side API calls work without
-browser CORS permission.
+with no ticket matches. These October 2, 2026 observations are individual
+runs, not a latency distribution or quality benchmark. A preflight check on
+that date rejected the Streamlit origin; Streamlit's server-side API calls work
+without browser CORS permission. The later browser-origin iframe wake sends a
+GET without reading the cross-origin response.
 
 ## Limitations, security, and production scale
 
@@ -309,8 +332,11 @@ browser CORS permission.
   Similarity scores are ranking signals, not calibrated confidence values.
 - The single backend worker protects in-memory index updates with a lock but
   serializes Gemini calls. Hosted readiness and retrieval passed, but Linux
-  peak memory, first model download time, restart persistence, and cold-start
-  latency have not been separately measured.
+  peak memory, first model download time, and restart persistence have not been
+  separately measured. Render Free cold starts have been intermittent; one
+  manually opened `/ready` took roughly ten minutes. The bounded browser wake
+  retries improve the attempt path, but reliable wake-up with a genuinely
+  sleeping backend has not been established after the latest change.
 - The admin API is disabled without `ADMIN_API_KEY`. A shared key is a
   prototype guard, not identity-based authentication, authorization, or a
   durable audit trail. API logs omit raw complaints; provider errors are

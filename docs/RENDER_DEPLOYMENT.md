@@ -4,7 +4,9 @@ This runbook describes a prototype deployment from the `develop` branch. Do not
 deploy real customer data or put credentials in Git, build commands, or chat.
 The application uses two Python web services and one Render Postgres database.
 The Streamlit service calls the public FastAPI HTTPS URL from its server process;
-only FastAPI calls Gemini and Postgres.
+only FastAPI calls Gemini and Postgres. The agent's browser also sends bounded
+GET requests to the public `/ready` URL to try to wake a sleeping Free backend;
+those requests contain no complaint or credential.
 
 ## Configuration
 
@@ -56,13 +58,48 @@ process responds; `GET /ready` additionally checks database access, search
 indexes/model, and whether Gemini is configured. Readiness does **not** call
 Gemini, so a hosted live request is still required.
 
+The recorded Postgres deployment is in Singapore with external database access
+disabled. The latest completed local regression suite passed **224 backend
+tests + 59 frontend tests = 283 total**.
+
+## Render Free wake and readiness
+
+On initial page load, a small browser iframe navigates to the configured
+`API_BASE_URL` plus `/ready`. It makes up to three browser-origin GET attempts
+per startup lifecycle: immediately, after about 25 seconds, and after about 75
+seconds. Each URL includes a unique `wake` lifecycle value and `n` retry number
+to avoid reusing a cached navigation. The iframe does not read the cross-origin
+response and does not require broader backend CORS access.
+
+Separately, Streamlit's server-side client polls `/ready` about every five
+seconds for up to 180 seconds. `/health` is only process liveness; only a ready
+`/ready` response enables complaint submission. Temporary gateway errors or
+timeouts remain a yellow starting state during the window. If the window
+expires, the status turns red; **Retry backend connection** starts a new wake
+and readiness lifecycle. The browser wake is bounded and never calls
+`/resolve`, Gemini, or Postgres directly.
+
+The complaint limit remains 3000 characters in the UI and API; 3001 or more
+is rejected without truncation.
+
+Render Free cold starts have been intermittent in hosted use. One manually
+opened `/ready` took roughly ten minutes, so the 180-second window is not a
+guaranteed startup time. The latest three-attempt browser retry behavior has
+passed local tests, but a new sleeping-backend hosted validation has not been
+recorded. To validate it, let the backend sleep, open only the frontend, and
+confirm browser wake attempts, backend startup, `/ready`, and yellow-to-green
+status without manually opening the backend URL.
+
 ## Durable and rebuildable state
 
 Postgres durably stores tickets, KB articles, taxonomy, and versioned embedding
 vectors. The backend's `backend/data/indexes/` FAISS files and
-`backend/data/model_cache/` are disposable. On the first `/ready` or search
-after a fresh deploy, the pinned ONNX MiniLM artifact may download; missing or
-stale indexes rebuild from approved Postgres records and reuse stored vectors.
+`backend/data/model_cache/` are disposable. A fresh Render instance may need to
+download the pinned ONNX MiniLM artifact again. On the first `/ready` or search
+after a fresh deploy, missing or stale indexes rebuild from approved Postgres
+records and reuse stored vectors. The synthetic seed contains 120 tickets and
+24 KB articles; 96 resolved, approved tickets and 22 approved KB articles are
+eligible retrieval evidence.
 A persistent disk is not required for this small prototype. Model download,
 FAISS construction, and service memory use must be checked on the chosen
 Render instance. No paid compute plan is assumed by this runbook.
@@ -89,8 +126,9 @@ design before it is safe.
    backend and confirm the same Postgres records remain and indexes rebuild.
 4. Call `/analyze` and `/resolve` with the synthetic broadband example. Check
    cited IDs are among retrieved approved evidence and record response latency.
-5. Open Streamlit, select the broadband example, and confirm analysis, ticket
-   matches, KB matches, cited draft steps, and the agent-review warning.
+5. Open Streamlit, paste the provided broadband complaint into the textarea,
+   and confirm analysis, ticket matches, KB matches, cited draft steps, and the
+   agent-review warning.
 6. Try an out-of-domain complaint for the insufficient-evidence state. The
    provider-error UI path is covered by local fake-provider tests; do not
    disable or alter hosted secrets solely to force that error. Review logs for
@@ -117,7 +155,9 @@ returned 200 with `insufficient_evidence=true` and no ticket matches. These are
 single-run observations. The post-restart persistence check, Linux memory peak,
 first model download time, out-of-domain Streamlit rendering, and hosted
 provider-error UI state were not separately recorded; local automated tests
-cover the two UI states.
+cover the two UI states. These October 2 results predate the later browser
+wake retries and actionability changes; do not treat them as validation of
+those newer paths.
 
 ## Security and operational limits
 

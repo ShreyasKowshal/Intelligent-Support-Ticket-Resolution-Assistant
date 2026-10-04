@@ -1,9 +1,10 @@
 # Project handoff
 
-Updated after Phase 10 hosted validation and the frontend readiness update on
-2026-10-02. The `develop` checkout,
-code, tests, and `backend/evaluation/results/` are the source of truth. See the
-README for setup and the Render runbook for deployed service configuration.
+Updated through commit `6cbad92` on 2026-10-04. The clean `develop` checkout
+matches `origin/develop`; `main` remains unmerged. The latest completed local
+run passed **224 backend tests and 59 frontend tests (283 total)**. Code, tests, and
+`backend/evaluation/results/` are the source of truth. See the README for setup
+and the Render runbook for deployed service configuration.
 
 ## Original problem, goal, and schedule
 
@@ -16,19 +17,23 @@ data is allowed. Deliverables include executable GitHub code, a microservice
 architecture diagram, data exploration, system-health evaluation, and
 production-scale considerations. Keyword search alone misses paraphrases.
 
-The working target is a feature-complete prototype by **Monday, October 5,
+The original target was a feature-complete prototype by **Monday, October 5,
 2026**, with technical evaluation on **Thursday, October 8, 2026**. October
 6–7 are for review, testing, demo practice, and necessary fixes.
 
 ## Current architecture and stack
 
 ```text
-Streamlit agent page (frontend/app.py)
-    -> HTTP POST /resolve on FastAPI
+Agent browser -> Streamlit agent page (frontend/app.py)
+    -> browser-origin GET /ready wake at 0, 25, and 75 seconds
+    -> server-side GET /ready polling about every 5 seconds, up to 180 seconds
+    -> HTTP POST /resolve on FastAPI after an explicit submit
         -> complaint analysis (Gemini via LLMClient)
-        -> semantic search (pinned MiniLM via FastEmbed ONNX + separate FAISS indexes)
-             -> approved/resolved tickets and approved KB from Repository
-        -> cited RAG draft (Gemini via LLMClient) + citation validation
+        -> actionability decision
+             -> clarification without retrieval or RAG for non-actionable input
+             -> otherwise semantic search (MiniLM via FastEmbed ONNX + separate FAISS indexes)
+                  -> approved/resolved tickets and approved KB from Repository
+                  -> cited RAG draft (Gemini via LLMClient) + citation validation
 
 FastAPI also exposes /health, /ready, /analyze, /search, and guarded /admin
 ticket, KB, and taxonomy updates. The CLI uses the same ingestion service.
@@ -48,6 +53,10 @@ SQLite, FAISS files, model cache, and `.env` are ignored by Git. The service
 rebuilds missing/stale indexes using stored embeddings where possible. The ONNX
 embedding runtime has a distinct model/version identifier and index manifest;
 old PyTorch vectors cannot be reused with it.
+The current encoder uses model family `sentence-transformers/all-MiniLM-L6-v2`,
+ONNX artifact repository `qdrant/all-MiniLM-L6-v2-onnx` at revision
+`d13954661f83248295ba75c1ed411eef3b7b936e`, and runtime identifier
+`fastembed-onnx-v1`.
 
 ## Git and phase workflow
 
@@ -70,8 +79,10 @@ final-documentation commit/push after hosted validation.
    expand to 120 tickets; there are 24 KB articles, 96 approved resolved
    ticket evidence records, and 22 approved KB records. Commit `19664ac`
    (`Add ticket dataset`).
-3. **Phase 3 — semantic retrieval:** `all-MiniLM-L6-v2` pinned at revision
-   `1110a243fdf4706b3f48f1d95db1a4f5529b4d41`; normalized vectors;
+3. **Phase 3 — semantic retrieval:** the original sentence-transformers path
+   pinned `all-MiniLM-L6-v2` at revision
+   `1110a243fdf4706b3f48f1d95db1a4f5529b4d41` (historical, replaced by
+   the current ONNX artifact above); normalized vectors;
    separate FAISS ticket/KB indexes with explicit source-ID mappings and
    versioned database embeddings. Ticket search text is complaint, product,
    and category, never historical resolution. Approval is rechecked at search
@@ -97,16 +108,16 @@ final-documentation commit/push after hosted validation.
    restrictive configurable CORS, and reused lifecycle services. Commits
    `ef053a1` (`Add FastAPI routes`) and `9d401b1`
    (`Reject noncanonical citations`).
-8. **Phase 8 — Streamlit:** Agent complaint input, five sample complaints,
-   analysis, ranked ticket and KB evidence, numbered cited resolution,
+8. **Phase 8 — Streamlit:** Agent complaint input and five sample controls at
+   the time (later removed), plus analysis, ranked ticket and KB evidence,
+   numbered cited resolution,
    insufficient-evidence and provider-error states, source IDs, and latency.
    `API_BASE_URL` configures the backend; HTTP requests have bounded timeouts.
    Commit `7a0d8c6` (`Add Streamlit frontend`).
    A post-Phase-10 UI update removed the sample controls and added a top-right
    `/ready` indicator. Submission stays disabled while the backend starts;
-   readiness retries every five seconds for up to 70 seconds, then offers a
-   manual retry. The six result areas and agent-review warning remain. The
-   post-update local suite has 117 backend and 33 frontend tests passing.
+   readiness polls about every five seconds for up to 180 seconds, then offers
+   a manual retry. The six result areas and agent-review warning remain.
 9. **Phase 9 — formal evaluation:** `python -m evaluation.run_evaluation`
    builds an isolated temporary seed DB and runs label-blind fake analysis,
    real pinned-model FAISS retrieval against the 16 held-out queries, a
@@ -153,9 +164,9 @@ exclude cold model/index loading, HTTP transport, and live Gemini. `/health`
 and `/ready` returned 200 with the temporary DB, search, model, and fake
 provider ready. `/ready` does not probe Gemini's network reachability.
 Quality JSON files were byte-identical across real-model reruns; latency is
-expected to vary. The Phase 10 regression suite was **117 backend tests + 21
-frontend tests = 138 passed**, with one Starlette/TestClient HTTPX deprecation
-warning. API HTTP smoke passed `/health`, `/ready`, `/analyze`, `/search`, and
+expected to vary. The historical Phase 10 regression suite passed **138 tests**
+at that time, with one Starlette/TestClient HTTPX deprecation warning. API
+HTTP smoke passed `/health`, `/ready`, `/analyze`, `/search`, and
 `/resolve` with a fake provider.
 
 The user has successfully made a direct Gemini SDK call from the local laptop.
@@ -185,9 +196,18 @@ failures appear environment-specific.
 - Synthetic data and a small, sparse relevance fixture limit external
   validity. Similarity scores rank matches; they are not probabilities.
   RAG citations check IDs, not whether each step is semantically entailed.
+- Analysis can short-circuit before search and RAG for nonsense, casual or
+  educational statements, pure device/hardware faults, local computer access,
+  and extremely vague telecom messages. Mixed hardware plus genuine telecom
+  faults, provider account-access problems, and short specific issues such as
+  “No signal.” continue to retrieval. The guard uses structured analysis and
+  complaint context; it is not a guarantee against every misclassification.
 - The pinned ONNX encoder's first download and FAISS rebuild may be slow.
-  Hosted readiness and retrieval passed, but Linux peak memory, first-download
-  time, and restart persistence were not separately measured. SQLite remains
+  Hosted readiness and retrieval passed in the October 2 demonstration, but
+  Linux peak memory, first-download time, and restart persistence were not
+  separately measured. Render Free wake-ups have been intermittent; one manual
+  `/ready` wake took roughly ten minutes. The latest bounded browser retries
+  have not had a recorded sleeping-backend hosted validation. SQLite remains
   the local default; Postgres is selected through `DATABASE_URL` on Render.
 - `.env` is ignored and untracked. No key or admin secret belongs in code,
   result files, logs, or Git history.
@@ -217,15 +237,37 @@ the hosted Streamlit UI, including citations, source IDs, backend latency
 `/resolve` request returned `insufficient_evidence=true` and zero ticket
 matches. This validates individual live paths, not hosted accuracy or load.
 
-After hosted validation, 117 backend and 21 frontend tests passed. The final
-deterministic run reproduced the saved analysis, retrieval, and RAG JSON exactly.
+The October 2 hosted validation was followed by a historical 138-test local
+run. The deterministic run reproduced the saved analysis, retrieval, and RAG
+JSON exactly.
 Warm latency varies; the final run's fake-provider `/resolve` mean was 16.0 ms
-on the local machine. Hosted first-download/cold-start time, restart persistence,
+on the local machine. Hosted first-download time, restart persistence,
 Linux peak memory, out-of-domain Streamlit rendering, and provider-error UI
 behavior were not separately exercised. Local tests cover the latter two states.
 Human review of semantic support, KB conflicts, safety, and escalation remains
 required before any draft is used with a customer. Do not claim synthetic or
 scripted metrics as production model quality.
+
+## Post-Phase-10 changes and current verification
+
+- `2459f91` bounded browser-origin `/ready` wake requests at 0, 25, and 75
+  seconds with distinct `wake` lifecycle and `n` retry parameters. Python
+  readiness polling stays near five seconds within a 180-second window; Retry
+  starts a fresh lifecycle.
+- `62fa0db` excluded clear speaker hardware faults while preserving calling
+  problems. `bc29b2f` preserved mixed hardware/SMS issues and excluded local
+  computer password problems. `64162ca` added clarification for extremely
+  vague telecom messages while preserving short specific complaints.
+- `6cbad92` generalized the guard for local OS access, educational queries,
+  and casual telecom-related statements while protecting explicit service
+  faults. Complaint input remains limited to 3000 characters; 3001 or more
+  is rejected without truncation.
+
+The latest completed local suite passed **224 backend tests + 59 frontend
+tests = 283 total**. The hosted backend and frontend were validated on October
+2; those recorded results predate these changes. No sleeping-backend hosted
+validation of the latest browser retry sequence or hosted recheck of every new
+actionability edge case is recorded.
 
 ## Run locally
 
