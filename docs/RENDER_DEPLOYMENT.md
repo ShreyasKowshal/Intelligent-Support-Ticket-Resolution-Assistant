@@ -33,11 +33,11 @@
 
 ## Cold start
 
-Render Free can sleep. The browser makes wake attempts at 0, 25, and 75
-seconds; readiness polls about every 5 seconds within a 180-second startup
-window. **Retry backend connection** starts a fresh attempt. The latest
-sleeping-backend, frontend-only wake test worked, but startup time can still
-vary on Render Free.
+Render Free services can spin down when idle. The frontend automatically
+retries waking the backend at 0, 25, and 75 seconds while polling readiness
+for up to 180 seconds. **Retry backend connection** starts a fresh attempt.
+The latest sleeping-backend, frontend-only wake test worked, but startup time
+can still vary.
 
 ## Quick verification
 
