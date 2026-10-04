@@ -207,6 +207,62 @@ def test_unknown_phone_hardware_fault_skips_without_exact_device_noun(api):
 
 
 @pytest.mark.parametrize("complaint", [
+    "My phone speaker is not working.",
+    "My phone speaker is broken.",
+    "My phone speaker is damaged.",
+])
+def test_speaker_hardware_analysis_skips_search_and_rag_even_with_known_product(api, complaint):
+    client, service, provider = api
+    provider.result = {
+        **ANALYSIS, "category": "other", "product": "mobile_postpaid",
+        "needs_review": True,
+        "intent": "Repair or replace a malfunctioning phone speaker",
+        "rationale": "Hardware issue with the device speaker is not covered by standard telecom network categories.",
+    }
+    service.search.load_or_build = lambda: pytest.fail("FAISS must be skipped")
+    service.search.search = lambda *_args, **_kwargs: pytest.fail("retrieval must be skipped")
+    provider.generate_resolution = lambda *_args: pytest.fail("RAG must be skipped")
+
+    response = client.post("/resolve", json={"complaint": complaint})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["analysis"] and body["non_actionable"] is True
+    assert body["tickets"] == body["kb_articles"] == body["source_ids"] == []
+    assert body["resolution"]["resolution_steps"] == body["resolution"]["sources_used"] == []
+    assert body["insufficient_evidence"] is True
+    assert "telecom service problem" in body["resolution"]["escalation_recommendation"]
+    assert "escalat" not in body["resolution"]["escalation_recommendation"].lower()
+
+
+@pytest.mark.parametrize("complaint", [
+    "I cannot hear the other person during calls.",
+    "Call audio keeps cutting out.",
+    "My calls have no sound.",
+    "My phone speaker is broken and my mobile data is down.",
+])
+def test_call_audio_and_mixed_service_issues_still_retrieve_with_hardware_analysis(api, complaint):
+    client, service, provider = api
+    provider.result = {
+        **ANALYSIS, "category": "other", "product": "mobile_postpaid",
+        "needs_review": True,
+        "intent": "Check possible device hardware fault",
+        "rationale": "A hardware issue may be involved.",
+    }
+    calls = []
+    original = service.search.search
+
+    def counted(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    service.search.search = counted
+    response = client.post("/resolve", json={"complaint": complaint})
+    assert response.status_code == 200
+    assert response.json()["non_actionable"] is False
+    assert calls == [1]
+
+
+@pytest.mark.parametrize("complaint", [
     "My mobile data is not working", "My phone has no network signal",
     "My phone has no mobile network",
     "Calls keep dropping", "My SIM is not activating",

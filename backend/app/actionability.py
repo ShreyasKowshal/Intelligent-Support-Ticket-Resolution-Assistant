@@ -55,9 +55,7 @@ def is_non_actionable_complaint(complaint: str, analysis: ComplaintAnalysis) -> 
         return True
     if analysis.category == "other" and analysis.needs_review and not tokens & TELECOM_SERVICE_WORDS:
         reasoning = f"{analysis.intent} {analysis.rationale}"
-        if OUT_OF_SCOPE_REASON.search(reasoning) or (
-            analysis.product == "other" and DEVICE_REASON.search(reasoning)
-        ):
+        if OUT_OF_SCOPE_REASON.search(reasoning) or DEVICE_REASON.search(reasoning):
             return True
     describes_telecom_problem = bool(tokens & DOMAIN_WORDS and tokens & PROBLEM_WORDS)
     if describes_telecom_problem:
