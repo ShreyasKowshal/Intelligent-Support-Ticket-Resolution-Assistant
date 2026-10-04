@@ -1,279 +1,209 @@
 # Project handoff
 
-Updated through commit `6cbad92` on 2026-10-04. The clean `develop` checkout
-matches `origin/develop`; `main` remains unmerged. The latest completed local
-run passed **224 backend tests and 59 frontend tests (283 total)**. Code, tests, and
-`backend/evaluation/results/` are the source of truth. See the README for setup
-and the Render runbook for deployed service configuration.
+Phases **1–10 are complete**. This handoff reflects the code through `6cbad92`
+and the latest completed local checks on 2026-10-04. `develop` is the active
+branch; `main` remains unmerged. For full setup, API, and evaluation details,
+see [README](../README.md); for service settings, see the
+[Render deployment guide](RENDER_DEPLOYMENT.md).
 
 ## Original problem, goal, and schedule
 
-Prodapt's telecom support use case asks an agent-facing assistant to parse a raw
-complaint into intent/category, product, severity, and sentiment; retrieve
-semantically similar past resolved tickets and KB articles; and draft a grounded,
-step-by-step resolution with historical evidence and citations. It must adapt
-to new tickets, updated guidance, and new ticket classes. Synthetic or open
-data is allowed. Deliverables include executable GitHub code, a microservice
-architecture diagram, data exploration, system-health evaluation, and
-production-scale considerations. Keyword search alone misses paraphrases.
+Prodapt's telecom support use case asks an agent-facing assistant to classify
+a raw complaint by intent/category, product, severity, and sentiment; retrieve
+semantically similar resolved tickets and knowledge-base (KB) articles; and
+draft grounded, step-by-step guidance with source citations. It must also
+handle new or updated tickets, KB guidance, and ticket classes. Keyword search
+alone misses paraphrases. Synthetic or open data is allowed. The deliverables
+are executable GitHub code, an architecture diagram, additional exploration,
+system-health evaluation, and production-scale considerations.
 
-The original target was a feature-complete prototype by **Monday, October 5,
-2026**, with technical evaluation on **Thursday, October 8, 2026**. October
-6–7 are for review, testing, demo practice, and necessary fixes.
+The original target was a feature-complete prototype by October 5, 2026,
+ahead of technical evaluation on October 8; October 6–7 were reserved for
+review, testing, demo practice, and necessary fixes.
 
 ## Current architecture and stack
 
 ```text
-Agent browser -> Streamlit agent page (frontend/app.py)
-    -> browser-origin GET /ready wake at 0, 25, and 75 seconds
-    -> server-side GET /ready polling about every 5 seconds, up to 180 seconds
-    -> HTTP POST /resolve on FastAPI after an explicit submit
-        -> complaint analysis (Gemini via LLMClient)
-        -> actionability decision
-             -> clarification without retrieval or RAG for non-actionable input
-             -> otherwise semantic search (MiniLM via FastEmbed ONNX + separate FAISS indexes)
-                  -> approved/resolved tickets and approved KB from Repository
-                  -> cited RAG draft (Gemini via LLMClient) + citation validation
+Agent browser -> Streamlit frontend -> FastAPI /resolve
+                                      -> Gemini complaint analysis
+                                      -> actionability decision
+                                         -> non-actionable: clarification; skip search/RAG
+                                         -> actionable: FastEmbed/ONNX MiniLM
+                                            -> separate FAISS ticket and KB indexes
+                                            -> approved evidence -> Gemini RAG
+                                            -> citation validation -> agent-reviewed draft
 
-FastAPI also exposes /health, /ready, /analyze, /search, and guarded /admin
-ticket, KB, and taxonomy updates. The CLI uses the same ingestion service.
-
-Repository -> SQLite locally / Render Postgres hosted.
+Agent browser -> browser-origin /ready wake attempts -> Render backend
+Streamlit server -> /ready polling -> backend status and submit gating
+FastAPI /admin + ingestion CLI -> tickets, KB, taxonomy, embeddings in database
+Database: SQLite locally; Render Postgres hosted
 ```
 
-Python 3.12 is the documented local target. FastAPI/Uvicorn, SQLAlchemy Core,
-Pydantic, FastEmbed/ONNX Runtime, FAISS, Google Gen AI SDK, and Streamlit are
-the main libraries. HTTPX powers the frontend client; scikit-learn powers the
-Phase 9 TF-IDF baseline and metric calculations. The frontend calls FastAPI
-only. It has no direct Gemini or admin workflow.
-
-FAISS files and model cache are disposable filesystem artifacts. The database is
-the durable source for tickets, KB, taxonomy, and versioned embeddings. Local
-SQLite, FAISS files, model cache, and `.env` are ignored by Git. The service
-rebuilds missing/stale indexes using stored embeddings where possible. The ONNX
-embedding runtime has a distinct model/version identifier and index manifest;
-old PyTorch vectors cannot be reused with it.
-The current encoder uses model family `sentence-transformers/all-MiniLM-L6-v2`,
-ONNX artifact repository `qdrant/all-MiniLM-L6-v2-onnx` at revision
-`d13954661f83248295ba75c1ed411eef3b7b936e`, and runtime identifier
-`fastembed-onnx-v1`.
+Python 3.12, FastAPI/Uvicorn, SQLAlchemy Core, Pydantic, FastEmbed/ONNX Runtime,
+FAISS `IndexFlatIP`, Google Gen AI SDK, Streamlit, and HTTPX form the runtime;
+scikit-learn supports evaluation. The frontend calls FastAPI, not Gemini.
+The current 384-dimensional, normalized encoder is the
+`sentence-transformers/all-MiniLM-L6-v2` family via ONNX artifact
+`qdrant/all-MiniLM-L6-v2-onnx` (revision
+`d13954661f83248295ba75c1ed411eef3b7b936e`, runtime ID
+`fastembed-onnx-v1`). Runtime/model versioning prevents reuse of old
+PyTorch embeddings. Tickets, KB, taxonomy, and versioned embeddings are
+durable in the database; FAISS files and model cache are rebuildable local
+artifacts. Missing or stale indexes rebuild from stored embeddings where
+possible. See the [README architecture](../README.md) for the full diagram.
 
 ## Git and phase workflow
 
-`develop` is active; `main` is the stable milestone. For each phase: PLAN ->
-IMPLEMENT -> VERIFY -> REVIEW -> FIX BLOCKER/HIGH -> REGRESSION TEST -> COMMIT
--> PUSH to `origin/develop` -> REPORT. Use one focused commit per phase, never
-force-push or rewrite history, and merge to `main` only on explicit request.
-Never commit `.env`, credentials, or secrets.
-Phase 10 used deployment-code commit/push before deployment and a separate
-final-documentation commit/push after hosted validation.
+Work on `develop`; keep `main` as the unmerged stable milestone. The phase
+workflow is PLAN → IMPLEMENT → VERIFY → REVIEW → FIX BLOCKER/HIGH → REGRESSION
+TEST → COMMIT → PUSH to `origin/develop` → REPORT. Keep commits focused; never
+force-push, rewrite history, or commit `.env` or secrets. Merge to `main` only
+on explicit request. Phase 10 pushed deployment code before deployment and
+final documentation after hosted validation.
 
 ## Completed phases
 
-1. **Phase 1 — setup:** Repository layout, configuration, requirements,
-   `.gitignore`, FastAPI `/health`, and its first test. Commit `6c66f04`
-   (`Setup project structure`).
-2. **Phase 2 — data/storage:** SQLAlchemy Core repository with tickets,
-   `kb_articles`, taxonomy, and embeddings tables; validated synthetic seed,
-   idempotent insert, profile, and held-out fixture. Twelve issue families
-   expand to 120 tickets; there are 24 KB articles, 96 approved resolved
-   ticket evidence records, and 22 approved KB records. Commit `19664ac`
-   (`Add ticket dataset`).
-3. **Phase 3 — semantic retrieval:** the original sentence-transformers path
-   pinned `all-MiniLM-L6-v2` at revision
-   `1110a243fdf4706b3f48f1d95db1a4f5529b4d41` (historical, replaced by
-   the current ONNX artifact above); normalized vectors;
-   separate FAISS ticket/KB indexes with explicit source-ID mappings and
-   versioned database embeddings. Ticket search text is complaint, product,
-   and category, never historical resolution. Approval is rechecked at search
-   time. Commit `1049042` (`Add semantic search`).
-4. **Phase 4 — complaint analysis:** Gemini SDK isolated by `LLMClient`, typed
-   analysis, known-taxonomy handling, review flag, and `other` for unfamiliar
-   classes. Severity and sentiment are normalized to service labels. Tests use
-   fake providers. Commit `6df182b` (`Add complaint analysis`).
-5. **Phase 5 — cited RAG:** Retrieves approved evidence, bounds context,
-   requests numbered steps and exact citations, checks citation IDs and
-   textual references, and abstains on weak evidence. Prompt tells Gemini to
-   prefer approved KB over conflicting historical tickets. Commits `7a62cb8`
-   (`Add RAG resolution`) and `ec18a92` (`Validate textual citations`).
-6. **Phase 6 — evolving data:** Controlled ticket/KB upserts, reviewed
-   taxonomy changes, index refresh, persistent embeddings, and analyzer
-   taxonomy reload. The optical-signal demo adds a new class and ticket,
-   confirms search, then reloads after restart. Commit `fb7093d`
-   (`Add evolving data support`).
-7. **Phase 7 — FastAPI routes:** `/health`, `/ready`, `/analyze`, `/search`,
-   `/resolve`, and secret-guarded `/admin/tickets`, `/admin/kb`,
-   `/admin/taxonomy`. Request/response models, safe error codes, bounded
-   complaint and Top-K validation, privacy-safe route logging, latency fields,
-   restrictive configurable CORS, and reused lifecycle services. Commits
-   `ef053a1` (`Add FastAPI routes`) and `9d401b1`
-   (`Reject noncanonical citations`).
-8. **Phase 8 — Streamlit:** Agent complaint input and five sample controls at
-   the time (later removed), plus analysis, ranked ticket and KB evidence,
-   numbered cited resolution,
-   insufficient-evidence and provider-error states, source IDs, and latency.
-   `API_BASE_URL` configures the backend; HTTP requests have bounded timeouts.
+1. **Phase 1 — setup:** Established the repository layout, configuration,
+   requirements, `.gitignore`, FastAPI `/health`, and initial test. Commit
+   `6c66f04` (`Setup project structure`).
+2. **Phase 2 — data and storage:** Built SQLAlchemy Core storage for tickets,
+   KB, taxonomy, and embeddings plus validated, idempotent synthetic seeding.
+   Twelve issue families yielded 120 tickets and 24 KB articles; 96 resolved,
+   approved tickets and 22 approved KB articles are eligible evidence.
+   Commit `19664ac` (`Add ticket dataset`).
+3. **Phase 3 — semantic retrieval:** Added normalized MiniLM vectors, separate
+   ticket/KB FAISS indexes, source-ID mappings, versioned embeddings, and
+   approval checks. Ticket search text excludes historical resolution text.
+   The original sentence-transformers revision
+   `1110a243fdf4706b3f48f1d95db1a4f5529b4d41` is historical; Phase 10
+   replaced its runtime. Commit `1049042` (`Add semantic search`).
+4. **Phase 4 — complaint analysis:** Isolated Gemini behind `LLMClient` and
+   added typed analysis, taxonomy handling, normalized severity/sentiment,
+   and `needs_review` for uncertain or unfamiliar classes. Tests use fake
+   providers. Commit `6df182b` (`Add complaint analysis`).
+5. **Phase 5 — cited RAG:** Bounded retrieved context, requested numbered
+   steps and exact source IDs, validated ID and textual citations, and added
+   weak-evidence abstention. The prompt prioritizes approved KB guidance over
+   conflicting historical tickets. Commits `7a62cb8` (`Add RAG resolution`)
+   and `ec18a92` (`Validate textual citations`).
+6. **Phase 6 — evolving data:** Added controlled ticket/KB upserts, reviewer-
+   approved taxonomy additions, embedding/index refresh, and restart reload.
+   An optical-signal class-and-ticket demo confirmed search after reload.
+   Commit `fb7093d` (`Add evolving data support`).
+7. **Phase 7 — API:** Added `/health`, `/ready`, `/analyze`, `/search`,
+   `/resolve`, and guarded ticket/KB/taxonomy admin routes. Typed contracts,
+   validation, sanitized errors, latency fields, privacy-safe logging, CORS,
+   and reused services support the workflow. Commits `ef053a1`
+   (`Add FastAPI routes`) and `9d401b1` (`Reject noncanonical citations`).
+8. **Phase 8 — frontend:** Added Streamlit complaint input and the six result
+   areas: analysis, similar tickets, KB, resolution, sources, and system
+   information. It handles insufficient evidence, provider errors, and
+   `API_BASE_URL`. The original sample controls were removed later.
    Commit `7a0d8c6` (`Add Streamlit frontend`).
-   A post-Phase-10 UI update removed the sample controls and added a top-right
-   `/ready` indicator. Submission stays disabled while the backend starts;
-   readiness polls about every five seconds for up to 180 seconds, then offers
-   a manual retry. The six result areas and agent-review warning remain.
-9. **Phase 9 — formal evaluation:** `python -m evaluation.run_evaluation`
-   builds an isolated temporary seed DB and runs label-blind fake analysis,
-   real pinned-model FAISS retrieval against the 16 held-out queries, a
-   same-text TF-IDF baseline, scripted RAG adversarial checks, and seven warm
-   FastAPI requests per endpoint. JSON metrics and a readable summary are in
-   `backend/evaluation/results/`. `--live` is optional and separate. Commit
-   `082ff7a` (`Add evaluation framework`).
+9. **Phase 9 — formal evaluation:** Added isolated-seed evaluation with a
+   deterministic, label-blind fake provider for analysis, real FAISS retrieval
+   on held-out queries, a same-text TF-IDF baseline, scripted RAG checks, and
+   saved results in [evaluation outputs](../backend/evaluation/results/).
+   Fake-provider metrics are **not Gemini accuracy**; optional live checks
+   remain separate. Commit `082ff7a` (`Add evaluation framework`).
+10. **Phase 10 — deployment and finalization:** Deployed FastAPI, Streamlit,
+    and Render Postgres. FastEmbed/ONNX replaced PyTorch, lowering measured
+    local peak memory from 535.7 to 282.2 MiB for Render Free. Hosted Gemini,
+    retrieval, cited resolution, and UI flow passed; deployment docs and
+    production-scale considerations were completed. Cold-start variability
+    remains. Key commits: `1b3ca33` and `1d3cb60`.
 
-## Phase 9 results and interpretation
+## Post-Phase-10 hardening
 
-The **analysis numbers are from a label-blind nearest-ticket fake provider**,
-not Gemini. On 16 manually labeled cases, category/intent accuracy are 50.0%
-with macro F1 51.8%; product 68.8%/73.5%; severity 56.2%/47.9%; sentiment
-25.0%/31.7%. Review-required positive recall is 0.0% for this surrogate;
-separate unfamiliar-category normalization passes. These results validate
-the scorer and show a weak lexical surrogate. They cannot establish live
-Gemini accuracy. Live free-text intent also needs a human or rubric-based
-assessment rather than exact string matching.
+The frontend gained a compact readiness indicator, submit gating, and a
+browser-origin `/ready` wake lifecycle with bounded attempts at **0, 25, and
+75 seconds**. Wake URLs use lifecycle/retry cache-busting parameters;
+server-side readiness polls about every five seconds for up to **180 seconds**,
+and manual Retry starts a fresh lifecycle (`2459f91`). Complaint input is
+limited to **3000 characters**; 3001 or more is rejected without truncation.
 
-The retrieval benchmark uses only the raw held-out complaint as query and
-explicitly labeled eligible source IDs. With **12 ticket-labeled queries**,
-FAISS ticket Recall@1/3/5 is **16.7%/41.7%/58.3%**, MRR **0.367**; TF-IDF is
-**0.0%/41.7%/41.7%**, MRR **0.205**. With **16 KB-labeled queries**, FAISS KB
-Recall@1/3/5 is **31.2%/65.6%/93.8%**, MRR **0.705**; TF-IDF is
-**21.9%/43.8%/62.5%**, MRR **0.558**. Multiple relevant IDs contribute
-fractionally to Recall@K. Ticket labels identify only one anchor per issue
-family, so other useful same-family tickets can score as misses. No exact
-or near (text-ratio >= 0.90) held-out/indexed ticket complaint duplicates
-were found. The corpus was not changed to improve scores.
+The actionability guard now asks for clarification before retrieval/RAG for
+nonsense, casual or non-telecom input, pure device hardware faults, local
+computer/OS login problems, extremely vague telecom complaints, and
+educational telecom queries. Mixed hardware plus a real telecom fault,
+genuine provider account-access issues, and short specific complaints such
+as “No signal.” still proceed. Relevant commits include speaker handling
+`62fa0db`, mixed/account handling `bc29b2f`, vague-complaint handling
+`64162ca`, and broader local-access/educational/casual handling `6cbad92`.
+The latest completed local suite passed **224 backend + 59 frontend = 283
+tests**.
 
-Scripted RAG runs on all 16 queries had **100% cited-ID validity** against
-retrieved approved evidence and **100% step citation coverage**. Invented IDs,
-invalid textual references, and injected invented IDs were rejected; empty
-and weak evidence abstained. A compliant fake preferred KB guidance in a
-synthetic conflict. **Citation validity does not prove semantic support**:
-the validator accepts real-ID citations attached to conflicting ticket advice
-or injected harmful advice. These are known MEDIUM limitations requiring agent
-review and, for production, stronger evidence verification.
+## Current evaluation summary
 
-Seven warm fake-provider in-process requests per route were measured. The
-latest saved run's mean latency is in `backend/evaluation/results/` (roughly
-1 ms `/analyze`, 20 ms `/search`, and 21.6 ms `/resolve` on this machine). Times
-exclude cold model/index loading, HTTP transport, and live Gemini. `/health`
-and `/ready` returned 200 with the temporary DB, search, model, and fake
-provider ready. `/ready` does not probe Gemini's network reachability.
-Quality JSON files were byte-identical across real-model reruns; latency is
-expected to vary. The historical Phase 10 regression suite passed **138 tests**
-at that time, with one Starlette/TestClient HTTPX deprecation warning. API
-HTTP smoke passed `/health`, `/ready`, `/analyze`, `/search`, and
-`/resolve` with a fake provider.
+| Retrieval benchmark | FAISS Recall@5 | FAISS MRR | TF-IDF Recall@5 |
+| --- | ---: | ---: | ---: |
+| Resolved tickets (12 labeled queries) | **58.3%** | **0.367** | 41.7% |
+| KB articles (16 labeled queries) | **93.8%** | **0.705** | 62.5% |
 
-The user has successfully made a direct Gemini SDK call from the local laptop.
-An optional Phase 9 live sample from the Codex environment failed on its first
-query with `GeminiProviderError`; a keyless host probe returned `ConnectError`.
-No live output was merged into deterministic scores, and no key was printed.
-This appears environment-specific, not evidence of a frontend defect. Repeat
-live/human evaluation on the user's reachable environment.
-
-The user also manually verified the full live local pipeline on their laptop:
-Streamlit → FastAPI → Gemini analysis → semantic retrieval → RAG generation
-→ citations → frontend display. For "My broadband drops every evening around
-8 PM and I already restarted the router twice.", the result showed complaint
-analysis, similar resolved tickets, relevant KB articles, grounded resolution,
-per-step citations, an escalation recommendation, and backend processing
-latency. Direct Gemini SDK access works locally; prior Codex `ConnectError`
-failures appear environment-specific.
+The scripted 16-query RAG run had **100% citation-ID validity** and **100%
+step citation coverage** against retrieved approved evidence. These
+structural checks **do not prove semantic entailment**: a valid source ID can
+still accompany unsupported, conflicting, or harmful advice. Similarity
+scores are ranking scores, not calibrated probabilities. The deterministic
+fake-provider analysis results test the evaluator, **not Gemini accuracy**;
+live Gemini classification accuracy has not been formally measured. Sparse
+relevance labels can undercount useful same-family ticket matches. Full
+metrics, methods, and saved outputs are in
+[backend/evaluation/results/](../backend/evaluation/results/) and the
+[README](../README.md).
 
 ## Design constraints and known limitations
 
-- Evidence eligibility is resolved+approved for tickets and approved for KB.
-  Search validates saved FAISS manifests and rechecks live database eligibility.
-  `IngestionService` refreshes indexes after meaningful updates.
-- Taxonomy additions require a reviewer through CLI/API; the API admin routes
-  require `ADMIN_API_KEY`. This is a simple prototype guard, not full RBAC or
-  a durable approval audit trail.
-- Synthetic data and a small, sparse relevance fixture limit external
-  validity. Similarity scores rank matches; they are not probabilities.
-  RAG citations check IDs, not whether each step is semantically entailed.
-- Analysis can short-circuit before search and RAG for nonsense, casual or
-  educational statements, pure device/hardware faults, local computer access,
-  and extremely vague telecom messages. Mixed hardware plus genuine telecom
-  faults, provider account-access problems, and short specific issues such as
-  “No signal.” continue to retrieval. The guard uses structured analysis and
-  complaint context; it is not a guarantee against every misclassification.
-- The pinned ONNX encoder's first download and FAISS rebuild may be slow.
-  Hosted readiness and retrieval passed in the October 2 demonstration, but
-  Linux peak memory, first-download time, and restart persistence were not
-  separately measured. Render Free wake-ups have been intermittent; one manual
-  `/ready` wake took roughly ten minutes. The latest bounded browser retries
-  have not had a recorded sleeping-backend hosted validation. SQLite remains
-  the local default; Postgres is selected through `DATABASE_URL` on Render.
-- `.env` is ignored and untracked. No key or admin secret belongs in code,
-  result files, logs, or Git history.
+- Only resolved and approved tickets and approved KB articles are eligible
+  evidence. Search rechecks database eligibility; index manifests detect
+  stale or missing rebuildable files. New classes use reviewed taxonomy
+  updates rather than model retraining.
+- The synthetic corpus and sparse labels limit real-world generalization.
+  Actionability heuristics can still misclassify edge cases; live Gemini
+  accuracy and semantic grounding are not formally established. An agent
+  must verify every draft and citation before advising a customer.
+- `ADMIN_API_KEY` is a shared prototype guard, not identity-based RBAC or a
+  durable approval audit trail. The backend uses one worker and a shared
+  service lock, favoring correctness over concurrent throughput.
+- Render Free cold starts are variable and have been intermittent. A manual
+  `/ready` wake once took roughly ten minutes; the latest browser retry
+  sequence has no recorded sleeping-backend hosted validation. Linux peak
+  memory, first model download time, and restart persistence were not
+  separately measured. `/ready` checks Gemini configuration, not network
+  reachability. This remains a production-minded prototype, not a fully
+  production-ready service.
+- `.env`, local SQLite, model cache, and FAISS files are ignored by Git.
+  Credentials belong in environment variables. For scaling, security,
+  observability, privacy, and data-governance options, see the
+  [README](../README.md).
 
-## Phase 10 deployment and validation
+## Current deployment / verification status
 
-Deployment code was pushed to `develop` as `1b3ca33` (`Prepare Render deployment`).
-The first Render Free backend attempt exceeded 512 MiB with the original
-PyTorch runtime. Commit `1d3cb60` (`Reduce embedding memory`) replaced that
-runtime with pinned FastEmbed/ONNX MiniLM while retaining 384-dimensional
-normalized vectors, separate FAISS `IndexFlatIP` indexes, approved-evidence
-rules, and a version barrier against old embeddings. Local Windows peak process
-memory through readiness, rebuild, search, and fake-provider resolution was
-282.2 MiB, versus 535.7 MiB for the earlier PyTorch path. This does not measure
-the hosted Linux memory peak. Render's Free backend then reached Live.
+The hosted [FastAPI backend](https://support-ticket-assistant-api.onrender.com)
+and [Streamlit frontend](https://support-ticket-assistant-ui.onrender.com) use
+Render Postgres in Singapore; external database access is disabled. `/health`
+and `/ready` returned 200, with readiness confirming database, search index,
+embedding model, and Gemini configuration. The backend's one-worker setup and
+seed/start commands are recorded in the [Render guide](RENDER_DEPLOYMENT.md).
+Direct local Gemini SDK access and the full local Streamlit-to-citations flow
+were also verified on the user's laptop.
 
-The deployed services are [FastAPI](https://support-ticket-assistant-api.onrender.com)
-and [Streamlit](https://support-ticket-assistant-ui.onrender.com), backed by
-Render Postgres in Singapore with external database access disabled. Public
-`/health` and `/ready` returned 200 on final check; readiness reported the
-database, search index, embedding model, and Gemini configuration ready. A
-hosted live `/resolve` for the broadband example returned 200 with analysis,
-five approved ticket matches, five KB articles, cited steps, and escalation;
-its backend latency was 3,048 ms. The user confirmed the same complaint through
-the hosted Streamlit UI, including citations, source IDs, backend latency
-(3,192 ms), and the agent-review warning. A separate hosted out-of-domain
-`/resolve` request returned `insufficient_evidence=true` and zero ticket
-matches. This validates individual live paths, not hosted accuracy or load.
-
-The October 2 hosted validation was followed by a historical 138-test local
-run. The deterministic run reproduced the saved analysis, retrieval, and RAG
-JSON exactly.
-Warm latency varies; the final run's fake-provider `/resolve` mean was 16.0 ms
-on the local machine. Hosted first-download time, restart persistence,
-Linux peak memory, out-of-domain Streamlit rendering, and provider-error UI
-behavior were not separately exercised. Local tests cover the latter two states.
-Human review of semantic support, KB conflicts, safety, and escalation remains
-required before any draft is used with a customer. Do not claim synthetic or
-scripted metrics as production model quality.
-
-## Post-Phase-10 changes and current verification
-
-- `2459f91` bounded browser-origin `/ready` wake requests at 0, 25, and 75
-  seconds with distinct `wake` lifecycle and `n` retry parameters. Python
-  readiness polling stays near five seconds within a 180-second window; Retry
-  starts a fresh lifecycle.
-- `62fa0db` excluded clear speaker hardware faults while preserving calling
-  problems. `bc29b2f` preserved mixed hardware/SMS issues and excluded local
-  computer password problems. `64162ca` added clarification for extremely
-  vague telecom messages while preserving short specific complaints.
-- `6cbad92` generalized the guard for local OS access, educational queries,
-  and casual telecom-related statements while protecting explicit service
-  faults. Complaint input remains limited to 3000 characters; 3001 or more
-  is rejected without truncation.
-
-The latest completed local suite passed **224 backend tests + 59 frontend
-tests = 283 total**. The hosted backend and frontend were validated on October
-2; those recorded results predate these changes. No sleeping-backend hosted
-validation of the latest browser retry sequence or hosted recheck of every new
-actionability edge case is recorded.
+On **October 2, 2026**, a hosted broadband complaint passed the full
+Streamlit → FastAPI → Postgres → Gemini → retrieval → RAG → citations → UI
+flow. The direct `/resolve` response contained five ticket matches, five KB
+articles, cited steps, and an escalation recommendation at 3,048 ms backend
+latency; the UI displayed the cited draft and agent-review warning at
+3,192 ms backend processing time. A separate out-of-domain API check
+abstained with no ticket matches. The current local suite result above and
+later hardening do not establish that every newer hosted edge case or a
+genuinely sleeping backend has been revalidated. Hosted reliability and
+quality still need human review.
 
 ## Run locally
 
-From the repository root, create and activate a compatible Python environment,
-then install `backend/requirements.txt` and `frontend/requirements.txt`.
-From `backend/` run:
+Use a Python 3.12 environment. From the repository root, install
+`backend/requirements.txt` and `frontend/requirements.txt`. From `backend/`
+run the following commands (the last starts the API):
 
 ```text
 python -m app.seed
@@ -283,16 +213,11 @@ python -m pytest -q
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-In a second root-level terminal run `python -m streamlit run frontend/app.py
---server.address 127.0.0.1 --server.port 8501`. Set `API_BASE_URL` in that
-process to change the backend origin; the local default is
-`http://127.0.0.1:8000`. Run `python -m pytest -q frontend/tests` from the
-root. The API reads the ignored repository-root `.env` for `GEMINI_API_KEY`;
-`.env.example` documents optional configuration. `--live` on the evaluation
-command is optional, uses up to three synthetic complaints, and writes an
-ignored environment-specific `live_sample.json`.
-
-Running `streamlit run frontend/app.py` can be sensitive to the current
-working directory and Python import path. With the virtual environment
-activated, the verified command from the repository root is
-`python -m streamlit run frontend/app.py`.
+In another terminal at the repository root, run
+`python -m streamlit run frontend/app.py`. The frontend defaults to
+`http://127.0.0.1:8000` unless `API_BASE_URL` is set. Run
+`python -m pytest -q frontend/tests` from the root. The API reads
+`GEMINI_API_KEY` from the ignored repository-root `.env` or environment;
+`.env.example` documents configuration. Evaluation `--live` is optional and
+kept separate from deterministic results. See the [README](../README.md) for
+full setup and the [Render guide](RENDER_DEPLOYMENT.md) for hosted settings.
