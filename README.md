@@ -10,14 +10,71 @@ ticket classes. Semantic search helps find related issues that keyword search ca
 
 ```mermaid
 flowchart LR
-    Agent[Support agent] --> UI[Streamlit] --> API[FastAPI] --> Analysis[Gemini analysis] --> Guard{Actionability}
-    Guard -->|Non-actionable| Clarify[Clarification]
-    Guard -->|Actionable| Search[FAISS ticket and KB search] --> RAG[Gemini RAG] --> Citations[Citation validation] --> Draft[Agent-reviewed draft]
-    Search <--> DB[(Postgres hosted / SQLite local)]
-    Admin[Reviewed ingestion] --> DB
+    A[Support Agent] --> B[Streamlit Frontend]
+    B --> C[FastAPI Backend]
+    C --> D[Gemini Complaint Analysis]
+    D --> E{Actionable Telecom Issue?}
+    E -- No --> F[Clarification Response]
+    E -- Yes --> G[FastEmbed / ONNX MiniLM]
+    G --> H1[FAISS Ticket Index]
+    G --> H2[FAISS KB Index]
+    H1 --> I[Similar Resolved Tickets]
+    H2 --> J[Relevant KB Articles]
+    I --> K[Gemini RAG]
+    J --> K
+    K --> L[Citation Validation]
+    L --> M[Agent-Reviewed Resolution Draft]
+    C --> N[(SQLite Local / Render Postgres)]
+    N --> H1
+    N --> H2
 ```
 
 Non-actionable input stops before retrieval/RAG. The frontend calls FastAPI, not Gemini or the database.
+
+## Complaint resolution flow
+
+```mermaid
+sequenceDiagram
+    participant A as Support Agent
+    participant F as Streamlit Frontend
+    participant B as FastAPI Backend
+    participant G as Gemini
+    participant S as Semantic Search
+    participant D as Database
+    participant R as RAG / Citation Validation
+
+    A->>F: Enter customer complaint
+    F->>B: POST /resolve
+    B->>G: Analyze complaint
+    G-->>B: Intent, category, product, severity, sentiment
+    B->>B: Check actionability
+
+    alt Non-actionable input
+        B-->>F: Clarification response
+        F-->>A: Ask for a telecom service issue
+    else Actionable telecom complaint
+        B->>S: Search semantic evidence
+        S->>D: Read approved tickets and KB
+        D-->>S: Eligible evidence
+        S-->>B: Similar tickets and KB articles
+        B->>G: Generate draft from retrieved evidence
+        G-->>B: Steps and source citations
+        B->>R: Validate citation IDs
+        R-->>B: Cited draft or insufficient evidence
+        B-->>F: Analysis, matches, and resolution
+        F-->>A: Display for agent review
+    end
+```
+
+1. The support agent enters a complaint in Streamlit.
+2. Streamlit sends it to FastAPI.
+3. Gemini analyzes the complaint.
+4. FastAPI checks whether the complaint is actionable.
+5. Non-actionable input returns a clarification.
+6. Actionable complaints are matched against approved tickets and KB articles.
+7. Gemini drafts steps using retrieved evidence.
+8. Citation validation checks source IDs.
+9. The frontend displays the result for agent review.
 
 ## Features and stack
 
@@ -82,6 +139,15 @@ see [saved results](backend/evaluation/results/) for full outputs.
 The [backend](https://support-ticket-assistant-api.onrender.com) and [frontend](https://support-ticket-assistant-ui.onrender.com)
 run on Render with hosted Postgres. Hosted end-to-end flow and the latest sleeping-backend frontend-only wake test worked;
 Render Free startup time can still vary. See the [Render deployment guide](docs/RENDER_DEPLOYMENT.md).
+
+## Requirements coverage
+
+- **Architecture diagram:** included above.
+- **Executable code:** FastAPI backend, Streamlit frontend, evaluation framework, and tests are checked into this repository; deployment instructions are included.
+- **Additional exploration:** FAISS retrieval is compared with a TF-IDF baseline using held-out queries.
+- **System-health evaluation:** `/health`, `/ready`, automated tests, and evaluation checks cover readiness and core system paths.
+- **Production-scale considerations:** authentication, scalable retrieval/storage, monitoring, privacy/governance, cold starts, and worker limits are summarized under Limitations.
+- **Dataset:** synthetic telecom support-ticket scenarios are used.
 
 ## Limitations
 
