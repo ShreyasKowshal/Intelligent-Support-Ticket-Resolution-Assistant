@@ -1,6 +1,6 @@
 # Project handoff
 
-**Phases 1–10 are complete.** `main` is the stable submission branch; `develop` hosts the verified React frontend and has not yet been merged into `main`.
+**Phases 1–10 are complete.** `main` is the stable submission branch and already contains the finalized React frontend. `develop` is retained for future fixes.
 
 ## Original problem and goal
 
