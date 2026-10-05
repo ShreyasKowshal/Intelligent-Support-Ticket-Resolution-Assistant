@@ -10,12 +10,12 @@ ticket classes. Semantic search helps find related issues that keyword search ca
 
 ```mermaid
 flowchart LR
-    A[Support Agent] --> B[Streamlit Frontend]
+    A[Support Agent] --> B[React / TypeScript / Tailwind Frontend]
     B --> C[FastAPI Backend]
     C --> D[Gemini Complaint Analysis]
     D --> E{Actionable Telecom Issue?}
     E -- No --> F[Clarification Response]
-    E -- Yes --> G[FastEmbed / ONNX MiniLM]
+    E -- Yes --> G[Semantic Retrieval / FastEmbed ONNX MiniLM]
     G --> H1[FAISS Ticket Index]
     G --> H2[FAISS KB Index]
     H1 --> I[Similar Resolved Tickets]
@@ -36,7 +36,7 @@ Non-actionable input stops before retrieval/RAG. The frontend calls FastAPI, not
 ```mermaid
 sequenceDiagram
     participant A as Support Agent
-    participant F as Streamlit Frontend
+    participant F as React Frontend
     participant B as FastAPI Backend
     participant G as Gemini
     participant S as Semantic Search
@@ -66,8 +66,8 @@ sequenceDiagram
     end
 ```
 
-1. The support agent enters a complaint in Streamlit.
-2. Streamlit sends it to FastAPI.
+1. The support agent enters a complaint in React.
+2. React sends it to FastAPI.
 3. Gemini analyzes the complaint.
 4. FastAPI checks whether the complaint is actionable.
 5. Non-actionable input returns a clarification.
@@ -82,7 +82,7 @@ sequenceDiagram
 - FastEmbed/ONNX `all-MiniLM-L6-v2` embeddings with separate FAISS ticket and KB indexes.
 - Cited RAG draft that avoids guessing when evidence is weak and requires agent review.
 - Controlled ticket, KB, and taxonomy updates with refreshed search indexes.
-- FastAPI, Streamlit, Gemini, SQLAlchemy, Render Postgres, and local SQLite.
+- React, TypeScript, Tailwind CSS, Vite, FastAPI, Python, Gemini, SQLAlchemy, Render Postgres, and local SQLite.
 
 The synthetic dataset has **120 tickets and 24 KB articles**; **96 resolved, approved tickets** and **22 approved KB articles** are eligible evidence.
 
@@ -92,9 +92,9 @@ Use Python 3.12. Create a virtual environment with `python -m venv .venv`; activ
 `.\.venv\Scripts\Activate.ps1` (PowerShell) or `source .venv/bin/activate` (macOS/Linux).
 From `backend/`, run `python -m pip install -r requirements.txt`, `python -m app.seed`, then
 `python -m uvicorn app.main:app --host 127.0.0.1 --port 8000`.
-In a second activated terminal at the repository root, run `python -m pip install -r frontend/requirements.txt`, then
-`python -m streamlit run frontend/app.py`.
-Backend: `http://127.0.0.1:8000`; frontend: `http://127.0.0.1:8501`. `API_BASE_URL` can override the backend origin.
+In a second terminal, from `frontend-react/`, run `npm install` and `npm run dev`.
+Backend: `http://127.0.0.1:8000`; frontend: `http://localhost:5173`. Set `VITE_API_BASE_URL` in
+`frontend-react/.env` to override the backend origin used by the local Vite proxy.
 Complaints are limited to **3000 characters**; longer input is rejected without truncation.
 
 ## Environment variables
@@ -105,7 +105,8 @@ Complaints are limited to **3000 characters**; longer input is rejected without 
 | `GEMINI_API_KEY` | Backend | Gemini credential |
 | `GEMINI_MODEL` | Backend | Optional model override |
 | `ADMIN_API_KEY` | Backend | Optional admin key; absent disables admin updates |
-| `API_BASE_URL` | Frontend | Backend HTTP(S) origin |
+| `CORS_ORIGINS` | Backend | Comma-separated allowed browser origins, including the hosted React site |
+| `VITE_API_BASE_URL` | React frontend | Public backend HTTP(S) origin |
 
 Keep credentials in the environment or ignored `.env`, never in Git.
 
@@ -129,21 +130,21 @@ Controlled ingestion can update tickets, KB guidance, and taxonomy and refresh t
 - Tickets: FAISS Recall@5 **58.3%**, MRR **0.367**; TF-IDF Recall@5 41.7%.
 - KB: FAISS Recall@5 **93.8%**, MRR **0.705**; TF-IDF Recall@5 62.5%.
 
-Scripted citation-ID validity and step citation coverage were **100%** each. The latest suite passed **224 backend + 59
-frontend = 283 tests**. Fake-provider analysis metrics are **not Gemini accuracy**; valid citation IDs do **not** prove
-semantic support, and similarity scores are not probabilities. From `backend/`, run `python -m evaluation.run_evaluation`;
+Scripted citation-ID validity and step citation coverage were **100%** each. At the time of the saved evaluation, the suite
+passed **224 backend + 59 frontend = 283 tests**. Fake-provider analysis metrics are **not Gemini accuracy**; valid citation
+IDs do **not** prove semantic support, and similarity scores are not probabilities. From `backend/`, run `python -m evaluation.run_evaluation`;
 see [saved results](backend/evaluation/results/) for full outputs.
 
 ## Deployment
 
-The [backend](https://support-ticket-assistant-api.onrender.com) and [frontend](https://support-ticket-assistant-ui.onrender.com)
-run on Render with hosted Postgres. Hosted end-to-end flow and the latest sleeping-backend frontend-only wake test worked;
+The [backend](https://support-ticket-assistant-api.onrender.com) and [React frontend](https://support-ticket-assistant.onrender.com)
+run on Render with hosted Postgres. The hosted React flow has been verified;
 Render Free startup time can still vary. See the [Render deployment guide](docs/RENDER_DEPLOYMENT.md).
 
 ## Requirements coverage
 
 - **Architecture diagram:** included above.
-- **Executable code:** FastAPI backend, Streamlit frontend, evaluation framework, and tests are checked into this repository; deployment instructions are included.
+- **Executable code:** FastAPI backend, React frontend, evaluation framework, and tests are checked into this repository; deployment instructions are included.
 - **Additional exploration:** FAISS retrieval is compared with a TF-IDF baseline using held-out queries.
 - **System-health evaluation:** `/health`, `/ready`, automated tests, and evaluation checks cover readiness and core system paths.
 - **Production-scale considerations** are summarized under Limitations.

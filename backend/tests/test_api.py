@@ -876,10 +876,11 @@ def test_admin_disabled_and_private_logging(api, caplog):
 
 def test_cors_is_restrictive(api):
     client, _, _ = api
-    allowed = client.options("/analyze", headers={
-        "Origin": "http://localhost:8501", "Access-Control-Request-Method": "POST",
-    })
-    assert allowed.headers["access-control-allow-origin"] == "http://localhost:8501"
+    for origin in ("http://localhost:5173", "http://127.0.0.1:5173"):
+        allowed = client.options("/analyze", headers={
+            "Origin": origin, "Access-Control-Request-Method": "POST",
+        })
+        assert allowed.headers["access-control-allow-origin"] == origin
     blocked = client.options("/analyze", headers={
         "Origin": "https://untrusted.example", "Access-Control-Request-Method": "POST",
     })

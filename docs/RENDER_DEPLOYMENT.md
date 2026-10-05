@@ -2,9 +2,9 @@
 
 ## Services
 
-- Frontend: https://support-ticket-assistant-ui.onrender.com
+- Frontend: https://support-ticket-assistant.onrender.com
 - Backend: https://support-ticket-assistant-api.onrender.com
-- Branch: `main`
+- Frontend branch: `develop` for current hosted testing; `main` remains unchanged
 - Hosted database: Render Postgres
 - Local fallback: SQLite
 
@@ -17,6 +17,7 @@
   - `DATABASE_URL`: Render Postgres internal connection URL
   - `GEMINI_API_KEY`: configure as a secret in Render
   - `PYTHON_VERSION`: `3.12.14`
+  - `CORS_ORIGINS`: include `https://support-ticket-assistant.onrender.com` alongside any existing allowed origins
 - Optional environment variables:
   - `GEMINI_MODEL`: Gemini model override
   - `ADMIN_API_KEY`: enables guarded admin routes when set
@@ -25,19 +26,19 @@
 
 ## Frontend
 
-- Root directory: repository root (leave Render's Root Directory field blank)
-- Build command: `pip install -r frontend/requirements.txt`
-- Start command: `python -m streamlit run frontend/app.py --server.address 0.0.0.0 --server.port "$PORT" --server.headless true`
-- `API_BASE_URL`: `https://support-ticket-assistant-api.onrender.com` (no trailing slash)
-- `PYTHON_VERSION`: `3.12.14`
+- Type: Render Static Site
+- Branch: `develop`
+- Root directory: `frontend-react`
+- Build command: `npm install && npm run build`
+- Publish directory: `dist`
+- `VITE_API_BASE_URL`: `https://support-ticket-assistant-api.onrender.com` (public backend origin; no trailing slash)
+- No SPA rewrite is needed because the app has no client-side routes.
 
 ## Cold start
 
-Render Free services can spin down when idle. The frontend automatically
-retries waking the backend at 0, 25, and 75 seconds while polling readiness
-for up to 180 seconds. **Retry backend connection** starts a fresh attempt.
-The latest sleeping-backend, frontend-only wake test worked, but startup time
-can still vary.
+Render Free services can spin down when idle. React checks backend health and
+readiness every five seconds for up to 180 seconds. **Retry backend connection**
+starts a fresh attempt. Startup time can still vary.
 
 ## Quick verification
 

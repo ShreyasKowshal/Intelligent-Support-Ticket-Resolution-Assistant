@@ -1,6 +1,6 @@
 # Project handoff
 
-**Phases 1–10 are complete.** `main` is the stable submission branch; `develop` is retained for future fixes. Both branches are currently aligned.
+**Phases 1–10 are complete.** `main` is the stable submission branch; `develop` hosts the verified React frontend and has not yet been merged into `main`.
 
 ## Original problem and goal
 
@@ -11,15 +11,15 @@ executable code, an architecture diagram, exploration, health evaluation, and pr
 ## Current architecture and stack
 
 ```text
-Agent -> Streamlit -> FastAPI -> Gemini complaint analysis -> actionability
+Agent -> React -> FastAPI -> Gemini complaint analysis -> actionability
                          |-> clarification for non-actionable input
-                         `-> FAISS ticket/KB retrieval -> Gemini cited RAG -> draft
-Browser wake + frontend /ready checks -> backend status
+                         `-> FAISS ticket/KB retrieval -> Gemini RAG -> citation validation -> draft
+React health/readiness checks -> backend status
 Admin ingestion -> SQLAlchemy -> SQLite local / Render Postgres hosted
 ```
 
-Stack: Streamlit, FastAPI, Gemini, FastEmbed/ONNX MiniLM, separate FAISS ticket/KB indexes, SQLAlchemy, local SQLite, and
-hosted Render Postgres. Only approved evidence is retrieved; the agent reviews every draft.
+Stack: React, TypeScript, Tailwind CSS, Vite, FastAPI, Python, Gemini, FastEmbed/ONNX MiniLM, separate FAISS ticket/KB
+indexes, SQLAlchemy, local SQLite, and hosted Render Postgres. Only approved evidence is retrieved; the agent reviews every draft.
 
 ## Git and phase workflow
 
@@ -35,16 +35,16 @@ Use focused commits on `develop` and push to `origin/develop`; do not rewrite hi
 5. **Phase 5 — RAG:** Cited resolution steps, KB preference, citation validation, and insufficient-evidence abstention.
 6. **Phase 6 — evolving data:** Controlled ticket/KB updates, reviewed taxonomy additions, and index refresh across restarts.
 7. **Phase 7 — API:** Health, readiness, analyze, search, resolve, and guarded admin routes with validation and safe errors.
-8. **Phase 8 — frontend:** Streamlit complaint workflow with analysis, tickets, KB, resolution, sources, and system information.
+8. **Phase 8 — frontend:** Complaint workflow with analysis, tickets, KB, resolution, sources, and system information.
 9. **Phase 9 — evaluation:** Fake-provider analysis, real FAISS retrieval, TF-IDF baseline, scripted RAG checks, and saved results.
-10. **Phase 10 — deployment:** FastAPI, Streamlit, and Postgres on Render; FastEmbed/ONNX reduced memory enough for Render Free deployment; hosted flow passed.
+10. **Phase 10 — deployment:** FastAPI, frontend, and Postgres on Render; FastEmbed/ONNX reduced memory enough for Render Free deployment; hosted flow passed.
 
 ## Post-Phase-10 hardening
 
-The frontend gained readiness/status UX and bounded browser wake retries at 0, 25, and 75 seconds within a 180-second
-readiness window. Complaint input is limited to 3000 characters. Actionability clarifies nonsense, non-telecom, device,
+The React frontend checks backend readiness every five seconds for up to 180 seconds and offers a retry control.
+Complaint input is limited to 3000 characters. Actionability clarifies nonsense, non-telecom, device,
 local-login, vague, and informational input before retrieval/RAG while preserving mixed and genuine telecom complaints.
-The latest local suite passed **224 backend + 59 frontend = 283 tests**.
+At the time of the saved evaluation, the local suite passed **224 backend + 59 frontend = 283 tests**.
 
 ## Current evaluation summary
 
@@ -63,15 +63,14 @@ do **not** prove semantic support, and similarity scores are rankings, not proba
 
 ## Current deployment status
 
-The [backend](https://support-ticket-assistant-api.onrender.com) and [frontend](https://support-ticket-assistant-ui.onrender.com)
-run on Render with hosted Postgres. Local and hosted end-to-end flows were verified. The latest sleeping-backend,
-frontend-only wake test worked; startup time can still vary. See the [Render guide](RENDER_DEPLOYMENT.md).
+The [backend](https://support-ticket-assistant-api.onrender.com) and [React frontend](https://support-ticket-assistant.onrender.com)
+run on Render with hosted Postgres. The hosted React flow was verified; startup time can still vary. See the [Render guide](RENDER_DEPLOYMENT.md).
 
 ## Run locally
 
-Install `backend/requirements.txt` and `frontend/requirements.txt` in a Python 3.12 environment. From `backend/`, run
+Install `backend/requirements.txt` in a Python 3.12 environment. From `backend/`, run
 `python -m app.seed`, `python -m app.build_indexes`, `python -m evaluation.run_evaluation`, and `python -m pytest -q`.
-Start the API with `python -m uvicorn app.main:app --host 127.0.0.1 --port 8000`. From the repository root, start the UI
-with `python -m streamlit run frontend/app.py` and run frontend tests with `python -m pytest -q frontend/tests`.
-Set `API_BASE_URL` to change the local backend origin; supply `GEMINI_API_KEY` through the environment or ignored `.env`.
+Start the API with `python -m uvicorn app.main:app --host 127.0.0.1 --port 8000`. From `frontend-react/`, run
+`npm install`, `npm run dev`, and `npm run test` for frontend tests. The UI runs at `http://localhost:5173`.
+Set `VITE_API_BASE_URL` to change the backend origin used by Vite; supply `GEMINI_API_KEY` through the backend environment or ignored `.env`.
 Full setup is in the [README](../README.md).

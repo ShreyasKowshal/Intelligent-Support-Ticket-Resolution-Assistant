@@ -39,7 +39,7 @@ def get_cors_origins() -> list[str]:
     """Allow only explicitly named frontend origins."""
     configured = os.getenv("CORS_ORIGINS")
     if not configured:
-        return ["http://localhost:8501", "http://127.0.0.1:8501"]
+        return ["http://localhost:5173", "http://127.0.0.1:5173"]
     origins = [origin.strip().rstrip("/") for origin in configured.split(",") if origin.strip()]
     if any(origin == "*" or not origin.startswith(("http://", "https://")) for origin in origins):
         raise ValueError("CORS_ORIGINS must contain explicit HTTP origins")
