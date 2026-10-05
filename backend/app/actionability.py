@@ -1,6 +1,7 @@
 """Conservative gate for inputs that cannot support telecom troubleshooting."""
 
 import re
+from typing import Literal
 
 from app.analysis import ComplaintAnalysis
 
@@ -38,9 +39,24 @@ LOCAL_ACCESS = frozenset({"login", "logon", "password", "pin", "profile", "signi
 LOG_IN = re.compile(r"\b(?:log|sign)(?:ging|ing)?\s+in(?:to)?\b", re.IGNORECASE)
 LOCAL_ACCOUNT_LOCK = re.compile(r"\b(?:account|profile)\s+(?:is\s+)?locked\b", re.IGNORECASE)
 TELECOM_ACCOUNT = re.compile(
-    r"\b(?:telecom|carrier|(?:mobile|cellular) provider|customer portal)\b",
+    r"\b(?:telecom|carrier|(?:mobile|cellular|broadband) provider|customer portal)\b",
     re.IGNORECASE,
 )
+THIRD_PARTY_ACCOUNT = re.compile(
+    r"\b(?:google|gmail|microsoft|outlook|facebook|instagram|apple id|icloud"
+    r"|yahoo|amazon|netflix)\b",
+)
+ACCOUNT_ACCESS = re.compile(
+    r"\b(?:password|passcode|passphrase|pin|login|logon|signin|locked|forgot"
+    r"|reset|recover|recovery)\b|\b(?:log|sign) in(?:to)?\b",
+)
+OTHER_TELECOM_ISSUE = re.compile(
+    r"\b(?:mobile data|broadband|cellular|carrier|telecom|customer portal|sim"
+    r"|signal|calls?|roaming|recharge|router|modem)\b",
+)
+WIFI_PASSWORD = re.compile(r"\bwifi\b.*\b(?:password|passcode|passphrase)\b|\b(?:password|passcode|passphrase)\b.*\bwifi\b")
+ROUTER_PASSWORD = re.compile(r"\b(?:router|modem)\b")
+ClarificationKind = Literal["third_party_account", "wifi_password", "router_wifi_password"]
 OUT_OF_SCOPE_REASON = re.compile(
     r"\b(?:non[ -]?telecom|outside (?:telecom|carrier)"
     r"|(?:unrelated|not related) to (?:telecom|network|carrier|service|account)"
@@ -57,16 +73,37 @@ NO_INCIDENT_REASON = re.compile(
 )
 
 
+def normalize_for_checks(complaint: str) -> str:
+    """Keep words and numbers while ignoring decorative symbols in deterministic checks."""
+    words = re.findall(r"[^\W_]+", complaint.casefold(), flags=re.UNICODE)
+    return re.sub(r"\bwi fi\b", "wifi", " ".join(words))
+
+
+def clarification_kind(complaint: str) -> ClarificationKind | None:
+    """Catch narrow account-scope ambiguity before telecom retrieval or drafting."""
+    text = normalize_for_checks(complaint)
+    if THIRD_PARTY_ACCOUNT.search(text) and ACCOUNT_ACCESS.search(text):
+        if not TELECOM_ACCOUNT.search(text) and not OTHER_TELECOM_ISSUE.search(text):
+            return "third_party_account"
+    if WIFI_PASSWORD.search(text):
+        if TELECOM_ACCOUNT.search(text):
+            return None
+        if ROUTER_PASSWORD.search(text):
+            return "router_wifi_password"
+        return "wifi_password"
+    return None
+
+
 def is_non_actionable_complaint(complaint: str, analysis: ComplaintAnalysis) -> bool:
     """Reject obvious noise, then use analysis plus complaint signals conservatively.
 
     A weak confidence or needs_review flag alone never suppresses retrieval.
     """
-    text = complaint.strip()
+    text = normalize_for_checks(complaint)
     words = re.findall(r"[^\W\d_]+", text.casefold(), flags=re.UNICODE)
     if not words or (len(words) == 1 and len(words[0]) == 1):
         return True
-    if re.fullmatch(r"https?://\S+", text, re.IGNORECASE):
+    if re.fullmatch(r"https?://\S+", complaint.strip(), re.IGNORECASE):
         return True
     if len(words) >= 3 and len(set(words)) == 1:
         return True
