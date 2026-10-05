@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.engine import URL
 
 from app.api_service import ApiServices
+from app.actionability import normalize_for_checks
 from app.gemini_client import GeminiProviderError
 from app.llm import FakeLLMClient
 from app.main import create_app
@@ -23,6 +24,12 @@ ANALYSIS = {
     "confidence": 0.83, "needs_review": False,
     "rationale": "Recurring evening drops interrupt service.",
 }
+
+
+def test_deterministic_normalization_preserves_words_and_numbers():
+    assert normalize_for_checks("  Forgot my Wi-Fi password!!! 😢🥵 5G  ") == (
+        "forgot my wifi password 5g"
+    )
 
 
 class FakeEncoder:
@@ -320,8 +327,93 @@ def test_local_device_password_issue_skips_telecom_account_guidance(api, complai
 
 
 @pytest.mark.parametrize("complaint", [
+    "forgot my google password and cannot log in",
+    "forgot my google password 😭 and cannot log in",
+    "I forgot my Gmail password.",
+    "I forgot my Microsoft account password.",
+    "I forgot my Outlook password.",
+    "I forgot my Facebook password.",
+    "I forgot my Instagram password.",
+    "I forgot my Apple ID password.",
+])
+def test_third_party_account_clarifies_before_retrieval(api, complaint):
+    client, service, provider = api
+    provider.result = {
+        **ANALYSIS, "category": "account_access", "product": "account_services",
+        "intent": "Reset an account password",
+        "rationale": "An account password was forgotten.",
+    }
+    service.search.search = lambda *_args, **_kwargs: pytest.fail("retrieval must be skipped")
+    provider.generate_resolution = lambda *_args: pytest.fail("RAG must be skipped")
+    body = client.post("/resolve", json={"complaint": complaint}).json()
+    assert body["non_actionable"] is True
+    assert body["analysis"]["category"] == body["analysis"]["product"] == "other"
+    assert body["analysis"]["needs_review"] is True
+    assert "third-party account issue" in body["resolution"]["problem_summary"]
+    assert body["tickets"] == body["kb_articles"] == body["source_ids"] == []
+    assert body["resolution"]["resolution_steps"] == []
+
+
+@pytest.mark.parametrize("complaint", [
+    "forgot my wifi password and cannot log in",
+    "forgot my wifi password 😢🥵 and cannot log in",
+    "forgot my wifi password!!! cannot log in",
+])
+def test_ambiguous_wifi_password_clarifies_without_retrieval(api, complaint):
+    client, service, provider = api
+    provider.result = {
+        **ANALYSIS, "category": "account_access", "product": "account_services",
+        "intent": "Reset the account password", "rationale": "A password was forgotten.",
+    }
+    service.search.search = lambda *_args, **_kwargs: pytest.fail("retrieval must be skipped")
+    provider.generate_resolution = lambda *_args: pytest.fail("RAG must be skipped")
+    body = client.post("/resolve", json={"complaint": complaint}).json()
+    assert body["non_actionable"] is True
+    assert body["analysis"]["category"] == body["analysis"]["product"] == "other"
+    assert body["resolution"]["escalation_recommendation"] == (
+        "Do you mean the Wi-Fi network password for your router, or the password for your telecom account?"
+    )
+    assert body["tickets"] == body["kb_articles"] == body["source_ids"] == []
+    assert body["resolution"]["resolution_steps"] == []
+
+
+def test_router_wifi_password_does_not_use_generic_account_recovery(api):
+    client, service, provider = api
+    provider.result = {
+        **ANALYSIS, "category": "account_access", "product": "account_services",
+        "intent": "Reset account password", "rationale": "The password was forgotten.",
+    }
+    service.search.search = lambda *_args, **_kwargs: pytest.fail("retrieval must be skipped")
+    provider.generate_resolution = lambda *_args: pytest.fail("RAG must be skipped")
+    body = client.post("/resolve", json={"complaint": "I forgot my router Wi-Fi password."}).json()
+    assert body["non_actionable"] is True
+    assert body["analysis"]["category"] == "other"
+    assert "router Wi-Fi network password" in body["resolution"]["problem_summary"]
+    assert body["tickets"] == body["kb_articles"] == body["source_ids"] == []
+
+
+def test_raw_complaint_is_preserved_for_model_while_checks_ignore_emoji(api):
+    client, service, provider = api
+    complaint = "forgot my wifi password 😢🥵 and cannot log in"
+    seen = []
+    original = provider.generate_analysis
+
+    def captured(instruction, raw_complaint):
+        seen.append(raw_complaint)
+        return original(instruction, raw_complaint)
+
+    provider.generate_analysis = captured
+    body = client.post("/resolve", json={"complaint": complaint}).json()
+    assert seen == [complaint]
+    assert body["non_actionable"] is True
+
+
+@pytest.mark.parametrize("complaint", [
     "I forgot my telecom account password",
+    "I forgot the password for my telecom account and I cannot log in.",
     "I cannot log into my mobile provider account",
+    "My mobile provider account is locked.",
+    "I cannot access my broadband provider account.",
     "My customer portal password is not working",
     "My telecom account is locked",
     "I forgot my laptop password for the customer portal",

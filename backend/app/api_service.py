@@ -8,7 +8,7 @@ from threading import RLock
 from dotenv import load_dotenv
 
 from app.analysis import ComplaintAnalysis, ComplaintAnalyzer
-from app.actionability import is_non_actionable_complaint
+from app.actionability import clarification_kind, is_non_actionable_complaint
 from app.gemini_client import GeminiClient, MissingApiKeyError
 from app.ingestion import IngestionService, UpdateOutcome
 from app.llm import LLMClient
@@ -16,6 +16,28 @@ from app.models import KnowledgeBaseArticle, SupportTicket, TaxonomyValue
 from app.rag import RAGGenerator, RAGResolution
 from app.search import SearchResults, SemanticSearch
 from app.storage import Repository
+
+
+CLARIFICATION_COPY = {
+    "third_party_account": (
+        "This appears to be a third-party account issue rather than a telecom service issue.",
+        "Please enter a telecom account or service problem.",
+        "Retrieval was skipped because the account named is outside telecom support.",
+        "Clarify third-party account scope",
+    ),
+    "wifi_password": (
+        "The password request does not identify which account or network needs access.",
+        "Do you mean the Wi-Fi network password for your router, or the password for your telecom account?",
+        "Retrieval was skipped until the password type is clarified.",
+        "Clarify Wi-Fi or telecom account password",
+    ),
+    "router_wifi_password": (
+        "This appears to concern a router Wi-Fi network password.",
+        "Please confirm the router and broadband service details before using approved router guidance.",
+        "Retrieval was skipped because the approved evidence does not establish a router password recovery flow.",
+        "Clarify router Wi-Fi password support",
+    ),
+}
 
 
 class AdminConfigurationError(RuntimeError):
@@ -85,15 +107,23 @@ class ApiServices:
     def resolve(self, complaint: str) -> tuple[ComplaintAnalysis, SearchResults, RAGResolution, bool]:
         with self._lock:
             analysis = self._analyze(complaint)
-            if is_non_actionable_complaint(complaint, analysis):
+            clarification = clarification_kind(complaint)
+            if clarification:
+                summary, recommendation, evidence_note, intent = CLARIFICATION_COPY[clarification]
+                analysis = ComplaintAnalysis.model_validate({
+                    **analysis.model_dump(), "intent": intent, "category": "other",
+                    "product": "other", "needs_review": True,
+                    "suggested_category": None, "rationale": summary,
+                })
+            if clarification or is_non_actionable_complaint(complaint, analysis):
                 return analysis, SearchResults([], []), RAGResolution(
-                    problem_summary="No clear telecom issue was identified.",
+                    problem_summary=summary if clarification else "No clear telecom issue was identified.",
                     resolution_steps=[],
-                    escalation_recommendation=(
+                    escalation_recommendation=recommendation if clarification else (
                         "No telecom service issue was identified. Please describe the telecom service "
                         "problem you need help with."
                     ),
-                    confidence_or_evidence_note=(
+                    confidence_or_evidence_note=evidence_note if clarification else (
                         "Retrieval was skipped because the message did not describe an actionable telecom problem."
                     ),
                     sources_used=[],
