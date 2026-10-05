@@ -130,8 +130,7 @@ Controlled ingestion can update tickets, KB guidance, and taxonomy and refresh t
 - Tickets: FAISS Recall@5 **58.3%**, MRR **0.367**; TF-IDF Recall@5 41.7%.
 - KB: FAISS Recall@5 **93.8%**, MRR **0.705**; TF-IDF Recall@5 62.5%.
 
-Scripted citation-ID validity and step citation coverage were **100%** each. At the time of the saved evaluation, the suite
-passed **224 backend + 59 frontend = 283 tests**. Fake-provider analysis metrics are **not Gemini accuracy**; valid citation
+Scripted citation-ID validity and step citation coverage were **100%** each. The current suite passes 241 backend tests and 20 frontend tests; the frontend production build also passes. Fake-provider analysis metrics are **not Gemini accuracy**; valid citation
 IDs do **not** prove semantic support, and similarity scores are not probabilities. From `backend/`, run `python -m evaluation.run_evaluation`;
 see [saved results](backend/evaluation/results/) for full outputs.
 
