@@ -36,7 +36,7 @@ At larger scale, this design would need stronger authentication, rate limiting, 
 
 ## Repository Evidence
 
-- [README.md](../../README.md) and [docs/RENDER_DEPLOYMENT.md](../RENDER_DEPLOYMENT.md) — architecture, deployment, and limitations.
-- [backend/app/api_service.py](../../backend/app/api_service.py), [backend/app/main.py](../../backend/app/main.py), and [backend/app/config.py](../../backend/app/config.py) — workflow, routes, readiness, errors, logging, and CORS.
-- [backend/app/ingestion.py](../../backend/app/ingestion.py), [backend/app/storage.py](../../backend/app/storage.py), and [backend/app/search.py](../../backend/app/search.py) — approved data lifecycle and index rebuild.
-- [backend/app/rag.py](../../backend/app/rag.py) and [backend/evaluation/results/evaluation_summary.md](../../backend/evaluation/results/evaluation_summary.md) — generation guardrails and their limits.
+- [README.md](../README.md) and [docs/RENDER_DEPLOYMENT.md](../docs/RENDER_DEPLOYMENT.md) — architecture, deployment, and limitations.
+- [backend/app/api_service.py](../backend/app/api_service.py), [backend/app/main.py](../backend/app/main.py), and [backend/app/config.py](../backend/app/config.py) — workflow, routes, readiness, errors, logging, and CORS.
+- [backend/app/ingestion.py](../backend/app/ingestion.py), [backend/app/storage.py](../backend/app/storage.py), and [backend/app/search.py](../backend/app/search.py) — approved data lifecycle and index rebuild.
+- [backend/app/rag.py](../backend/app/rag.py) and [backend/evaluation/results/evaluation_summary.md](../backend/evaluation/results/evaluation_summary.md) — generation guardrails and their limits.

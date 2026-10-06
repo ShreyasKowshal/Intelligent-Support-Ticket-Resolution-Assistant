@@ -46,6 +46,6 @@ There is no full metrics/alerting stack or deep provider monitoring. Render cold
 
 ## Repository Evidence
 
-- [backend/evaluation/](../../backend/evaluation/), [backend/evaluation/results/](../../backend/evaluation/results/), and [backend/evaluation/held_out_queries.json](../../backend/evaluation/held_out_queries.json).
-- [backend/tests/](../../backend/tests/), [frontend-react/src/test/](../../frontend-react/src/test/), and [backend/app/main.py](../../backend/app/main.py).
-- [README.md](../../README.md) — published metrics, setup, and limitations.
+- [backend/evaluation/](../backend/evaluation/), [backend/evaluation/results/](../backend/evaluation/results/), and [backend/evaluation/held_out_queries.json](../backend/evaluation/held_out_queries.json).
+- [backend/tests/](../backend/tests/), [frontend-react/src/test/](../frontend-react/src/test/), and [backend/app/main.py](../backend/app/main.py).
+- [README.md](../README.md) — published metrics, setup, and limitations.

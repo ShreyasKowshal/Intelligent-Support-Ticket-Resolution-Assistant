@@ -20,11 +20,11 @@ The user is a support agent who enters a customer's complaint. The generated ste
 
 ## Repository Evidence
 
-- [README.md](../../README.md) — problem statement, architecture, and agent workflow.
-- [backend/app/analysis.py](../../backend/app/analysis.py) — structured complaint analysis.
-- [backend/app/search.py](../../backend/app/search.py) and [backend/app/rag.py](../../backend/app/rag.py) — retrieval and cited drafting.
-- [backend/app/ingestion.py](../../backend/app/ingestion.py) and [backend/app/main.py](../../backend/app/main.py) — controlled updates and API routes.
-- [frontend-react/](../../frontend-react/) — agent-facing interface.
+- [README.md](../README.md) — problem statement, architecture, and agent workflow.
+- [backend/app/analysis.py](../backend/app/analysis.py) — structured complaint analysis.
+- [backend/app/search.py](../backend/app/search.py) and [backend/app/rag.py](../backend/app/rag.py) — retrieval and cited drafting.
+- [backend/app/ingestion.py](../backend/app/ingestion.py) and [backend/app/main.py](../backend/app/main.py) — controlled updates and API routes.
+- [frontend-react/](../frontend-react/) — agent-facing interface.
 
 ## Strengths
 

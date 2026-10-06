@@ -13,7 +13,8 @@ backend/
   evaluation/   runners, labels, and saved results
   tests/        backend tests
 frontend-react/  Vite application and frontend tests
-docs/           handoff, deployment, and rubric documents
+docs/           handoff and deployment docs
+evaluation/     rubric documents
 ```
 
 ## Separation of Concerns
@@ -48,6 +49,6 @@ The deployment uses one worker with process-local search state. Citation checks 
 
 ## Repository Evidence
 
-- [backend/app/](../../backend/app/), [backend/tests/](../../backend/tests/), [backend/evaluation/](../../backend/evaluation/), and [backend/data/seed/](../../backend/data/seed/).
-- [frontend-react/src/](../../frontend-react/src/), [frontend-react/package.json](../../frontend-react/package.json), and [frontend-react/package-lock.json](../../frontend-react/package-lock.json).
-- [README.md](../../README.md), [.gitignore](../../.gitignore), and [docs/RENDER_DEPLOYMENT.md](../RENDER_DEPLOYMENT.md).
+- [backend/app/](../backend/app/), [backend/tests/](../backend/tests/), [backend/evaluation/](../backend/evaluation/), and [backend/data/seed/](../backend/data/seed/).
+- [frontend-react/src/](../frontend-react/src/), [frontend-react/package.json](../frontend-react/package.json), and [frontend-react/package-lock.json](../frontend-react/package-lock.json).
+- [README.md](../README.md), [.gitignore](../.gitignore), and [docs/RENDER_DEPLOYMENT.md](../docs/RENDER_DEPLOYMENT.md).
