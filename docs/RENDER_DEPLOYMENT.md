@@ -4,7 +4,7 @@
 
 - Frontend: https://support-ticket-assistant.onrender.com
 - Backend: https://support-ticket-assistant-api.onrender.com
-- Frontend branch: `develop` for current hosted testing; `main` contains the finalized React frontend
+- Frontend branch: `main`
 - Hosted database: Render Postgres
 - Local fallback: SQLite
 
@@ -27,7 +27,7 @@
 ## Frontend
 
 - Type: Render Static Site
-- Branch: `develop`
+- Branch: `main`
 - Root directory: `frontend-react`
 - Build command: `npm install && npm run build`
 - Publish directory: `dist`
